@@ -571,14 +571,14 @@ external JSValue JS_ThrowOutOfMemory(
 
 @ffi.Native<ffi.Void Function(ffi.Pointer<JSContext>, JSValue)>(
     symbol: '__JS_FreeValue')
-external void __JS_FreeValue(
+external void ffi__JS_FreeValue(
   ffi.Pointer<JSContext> ctx,
   JSValue v,
 );
 
 @ffi.Native<ffi.Void Function(ffi.Pointer<JSRuntime>, JSValue)>(
     symbol: '__JS_FreeValueRT')
-external void __JS_FreeValueRT(
+external void ffi__JS_FreeValueRT(
   ffi.Pointer<JSRuntime> rt,
   JSValue v,
 );

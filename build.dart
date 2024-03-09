@@ -2,7 +2,7 @@
 // for details. All rights reserved. Use of this source code is governed by a
 // BSD-style license that can be found in the LICENSE file.
 
-import 'dart:io' show File, Platform, Process, exit, stderr, stdout;
+import 'dart:io' show File, Process, exit, stderr, stdout;
 import 'package:path/path.dart' as p;
 import 'package:native_assets_cli/native_assets_cli.dart';
 
@@ -45,6 +45,12 @@ void main(List<String> args) async {
     path: AssetAbsolutePath(libUri),
   ));
   final src = [
+    'src/quickjs.c',
+    'src/libregexp.c',
+    'src/libunicode.c',
+    'src/cutils.c',
+    'src/libc.c',
+    'src/libbf.c',
   ];
 
   buildOutput.dependencies.dependencies.addAll([

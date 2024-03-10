@@ -21,6 +21,13 @@ void main() {
     expect(result.value, '-2');
   });
 
+  test('test console.log', () {
+    final result = engine.eval("console.log('Hello~');console.log('World!');");
+    expect(result.stdout, 'Hello~\nWorld!\n');
+    expect(result.stderr, null);
+    expect(result.value, 'undefined');
+  });
+
   tearDownAll(() {
     engine.dispose();
   });

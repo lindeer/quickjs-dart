@@ -3,6 +3,14 @@ import 'dart:ffi' as ffi;
 import 'ffi.dart';
 import 'lib_quickjs.dart' as lib;
 
+/// Implement `#define JS_EXCEPTION JS_MKVAL(JS_TAG_EXCEPTION, 0)`
+// ignore: non_constant_identifier_names
+final JS_EXCEPTION = lib.JS_MAKE_VALUE(lib.JS_TAG_EXCEPTION, 0);
+
+/// Implement `#define JS_UNDEFINED JS_MKVAL(JS_TAG_UNDEFINED, 0)`
+// ignore: non_constant_identifier_names
+final JS_UNDEFINED = lib.JS_MAKE_VALUE(lib.JS_TAG_UNDEFINED, 0);
+
 /// Implement `static inline JS_BOOL JS_IsException(JSValueConst v)` in
 /// `quickjs.h`, 'cause inline functions are not supported by ffigen.
 // ignore: non_constant_identifier_names
@@ -20,6 +28,16 @@ bool JS_VALUE_HAS_REF_COUNT(lib.JSValue v) =>
 /// Implement `#define JS_VALUE_GET_PTR(v) ((v).u.ptr)` macro in `quickjs.h`
 // ignore: non_constant_identifier_names
 ffi.Pointer<ffi.Void> JS_VALUE_GET_PTR<T>(lib.JSValue v) => v.u.ptr;
+
+/// Implement `static inline JSValue JS_NewCFunction()` in `quickjs.h`.
+// ignore: non_constant_identifier_names
+lib.JSValue JS_NewCFunction(
+        ffi.Pointer<lib.JSContext> ctx,
+        ffi.Pointer<lib.JSCFunction> func,
+        ffi.Pointer<ffi.Char> name,
+        int length) =>
+    lib.JS_NewCFunction2(
+        ctx, func, name, length, lib.JSCFunctionEnum.JS_CFUNC_generic, 0);
 
 /// Implement `static inline void JS_FreeValue(JSContext *ctx, JSValue v)` in
 /// `quickjs.h`, 'cause inline functions are not supported by ffigen.

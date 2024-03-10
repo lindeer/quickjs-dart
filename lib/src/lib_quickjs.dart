@@ -8,6 +8,12 @@
 // ignore_for_file: type=lint, unused_field, unused_element
 import 'dart:ffi' as ffi;
 
+@ffi.Native<JSValue Function(ffi.Int64, ffi.Int32)>(symbol: 'JS_MAKE_VALUE')
+external JSValue JS_MAKE_VALUE(
+  int tag,
+  int val,
+);
+
 @ffi.Native<ffi.Pointer<JSRuntime> Function()>(symbol: 'JS_NewRuntime')
 external ffi.Pointer<JSRuntime> JS_NewRuntime();
 

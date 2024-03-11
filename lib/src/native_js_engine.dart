@@ -15,6 +15,7 @@ final class NativeJsEngine {
 
   /// A char buffer for interoperation with C.
   final NativeString _buf;
+  final _stdout = StringBuffer();
 
   NativeJsEngine._(this.rt, this.ctx, this._buf);
 
@@ -22,9 +23,10 @@ final class NativeJsEngine {
     final rt = lib.JS_NewRuntime();
     final ctx = lib.JS_NewContext(rt);
     final cStr = NativeString();
-    _bindConsole(ctx, cStr);
+    final e = NativeJsEngine._(rt, ctx, cStr);
+    _bindConsole(ctx, e);
     cStr.pavedBy(name ?? '<input>');
-    return NativeJsEngine._(rt, ctx, cStr);
+    return e;
   }
 
   /// Evaluate the give code.
@@ -63,7 +65,7 @@ final class NativeJsEngine {
     lib.JS_FreeRuntime(rt);
   }
 
-  static final _stdout = StringBuffer();
+  static final _consoleDict = <int, NativeJsEngine>{};
 
   static lib.JSValue _consoleLog(ffi.Pointer<lib.JSContext> ctx,
       lib.JSValue val, int argc, ffi.Pointer<lib.JSValue> argv) {
@@ -77,19 +79,27 @@ final class NativeJsEngine {
       lib.JS_FreeCString(ctx, ptr);
       return str;
     }).join(' ');
-    _stdout.writeln(strings);
+
+    final engine = _consoleDict[c.hashJsValue(val)];
+    if (engine == null) {
+      print("Engine instance not found with '$strings'!");
+    } else {
+      engine._stdout.writeln(strings);
+    }
     return c.JS_UNDEFINED;
   }
 
-  static void _bindConsole(ffi.Pointer<lib.JSContext> ctx, NativeString buf) {
+  static void _bindConsole(ffi.Pointer<lib.JSContext> ctx, NativeJsEngine e) {
     final global = lib.JS_GetGlobalObject(ctx);
 
+    final buf = e._buf;
     final name = buf.pavedBy('log');
     final console = lib.JS_NewObject(ctx);
     final pointer = ffi.Pointer.fromFunction<_DartJSCFunction>(_consoleLog);
     final func = c.JS_NewCFunction(ctx, pointer, name, 1);
     lib.JS_SetPropertyStr(ctx, console, name, func);
     lib.JS_SetPropertyStr(ctx, global, buf.pavedBy('console'), console);
+    _consoleDict[c.hashJsValue(console)] = e;
 
     c.JS_FreeValue(ctx, global);
   }

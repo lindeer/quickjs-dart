@@ -92,3 +92,9 @@ String getJsError(ffi.Pointer<lib.JSContext> ctx) {
   JS_FreeValue(ctx, exception);
   return '$str$stack';
 }
+
+/// Calc a hash value for a given `JSValue`, a helper function for mapping a
+/// Dart object.
+int hashJsValue(lib.JSValue v) {
+  return Object.hash(v.tag, v.u.int32, v.u.float64, v.u.ptr);
+}

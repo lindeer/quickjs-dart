@@ -28,6 +28,46 @@ void main() {
     expect(result.value, 'undefined');
   });
 
+  test('test js import', () {
+    const module = """
+export class User {
+  constructor(name) {
+    this.name = name;
+  }
+}
+""";
+    const code = "import {User} from './user.js';";
+    const exe = "var user = new User('Alem');console.log(user.name);";
+    const errorSyntax = """SyntaxError: expecting '('
+    at <test>:1
+""";
+    const errorRef = """ReferenceError: 'User' is not defined
+    at <eval> (<test>:1)
+""";
+    String moduleReader(String _) => module;
+    NativeJsEngine.strReader = moduleReader;
+    var result = engine.eval(code);
+    expect(result.stdout, null);
+    expect(result.stderr, '$errorSyntax\n');
+    expect(result.value, '(null)');
+
+    result = engine.eval('$code$exe', evalType: EvalType.module);
+    expect(result.stdout, 'Alem\n');
+    expect(result.stderr, null);
+    expect(result.value, '[object Promise]');
+
+    result = engine.eval(exe);
+    expect(result.stdout, null);
+    expect(result.stderr, '$errorRef\n');
+    expect(result.value, '(null)');
+
+    engine.eval('$code globalThis.User=User;', evalType: EvalType.module);
+    result = engine.eval(exe);
+    expect(result.stdout, 'Alem\n');
+    expect(result.stderr, null);
+    expect(result.value, 'undefined');
+  });
+
   tearDownAll(() {
     engine.dispose();
   });

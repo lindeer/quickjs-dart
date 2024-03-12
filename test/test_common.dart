@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:quickjs/src/native_js_engine.dart';
 import 'package:test/test.dart';
 
@@ -68,7 +70,23 @@ export class User {
     expect(result.value, 'undefined');
   });
 
+  test('run quickjs tests', () {
+    _runQjsTest('src/tests/test_closure.js');
+    _runQjsTest('src/tests/test_language.js');
+    _runQjsTest('src/tests/test_builtin.js');
+    _runQjsTest('src/tests/test_loop.js');
+    _runQjsTest('src/tests/test_bignum.js');
+  });
+
   tearDownAll(() {
     engine.dispose();
   });
+}
+
+void _runQjsTest(String filepath) {
+  final engine = NativeJsEngine(name: filepath);
+  final code = File(filepath).readAsStringSync();
+  final val = engine.eval(code);
+  engine.dispose();
+  expect(val.stderr, null);
 }

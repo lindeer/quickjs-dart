@@ -11,6 +11,7 @@ function Page(options) {
     setData(obj) {
       Object.assign(this.data, obj);
       console.log(JSON.stringify(obj));
+      _ffiNotify('_onDataChanged', JSON.stringify(obj));
     }
 
     dismissDialog(cb) {
@@ -94,7 +95,19 @@ void main() {
     expect(result.value, "false");
     result = engine.eval('with (page) {onClick();data.self}');
     expect(result.stderr, null);
+    expect(result.stdout, '{"self":true}\n');
     expect(result.value, "true");
+  });
+
+  test('test bridge with an object', () {
+    engine.bridgeNotifyObject('page');
+    engine.registerNotify('_onDataChanged', (data) {
+      expect(data['code'], 1);
+    });
+
+    final result = engine.eval('with (page) {sendMsg(2);}');
+    expect(result.stderr, null);
+    expect(result.stdout, '{"code":1}\n');
   });
 
   tearDownAll(() {

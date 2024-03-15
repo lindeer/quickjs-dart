@@ -28,25 +28,27 @@ enum EvalType {
 final class NativeJsEngine {
   final ffi.Pointer<lib.JSRuntime> rt;
   final ffi.Pointer<lib.JSContext> ctx;
+  final String filename;
 
   /// A char buffer for interoperation with C.
   final NativeString _buf;
   final _stdout = StringBuffer();
   final _notifyDict = <String, JSNotifyFunction>{};
 
-  NativeJsEngine._(this.rt, this.ctx, this._buf);
+  NativeJsEngine._(this.rt, this.ctx, this.filename, this._buf);
 
   factory NativeJsEngine({String? name}) {
+    name ??= '<input>';
     final rt = lib.JS_NewRuntime();
     final ctx = lib.JS_NewContext(rt);
     final cStr = NativeString();
-    final e = NativeJsEngine._(rt, ctx, cStr);
+    final e = NativeJsEngine._(rt, ctx, name, cStr);
     final globalThis = lib.JS_GetGlobalObject(ctx);
     e._bindConsole(globalThis, 'console');
     e._bindNotify(globalThis, '_ffiNotify');
     final pf = ffi.Pointer.fromFunction<_DartJSModuleLoadFunc>(_loadJsModule);
     lib.JS_SetModuleLoaderFunc(rt, ffi.nullptr, pf, ffi.nullptr);
-    cStr.pavedBy(name ?? '<input>');
+    cStr.pavedBy(name);
     c.JS_FreeValue(ctx, globalThis);
     return e;
   }
@@ -147,10 +149,21 @@ final class NativeJsEngine {
     return module;
   }
 
+  T _safeCBuffer<T>(String name, T Function(ffi.Pointer<ffi.Char> str) f) {
+    try {
+      return f.call(_buf.pavedBy(name));
+    } finally {
+      // we need restore the content in buf
+      _buf.pavedBy(filename);
+    }
+  }
+
   /// For a js global variable [name], bridge it with a ffi callback by [type].
   bool bridgeNotifyObject(String name) {
     final globalThis = lib.JS_GetGlobalObject(ctx);
-    final obj = lib.JS_GetPropertyStr(ctx, globalThis, _buf.pavedBy(name));
+    final obj = _safeCBuffer(name, (str) {
+      return lib.JS_GetPropertyStr(ctx, globalThis, str);
+    });
 
     if (c.JS_IsException(obj)) {
       print('Error: bridgeJsObject: ${c.getJsError(ctx)}');

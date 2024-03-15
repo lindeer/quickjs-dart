@@ -110,6 +110,16 @@ void main() {
     expect(result.stdout, '{"code":1}\n');
   });
 
+  test('test eval after bridge', () {
+    const errorStr = """ReferenceError: 'x' is not defined
+    at <eval> (<test_obj>)
+""";
+    engine.registerNotify('_onDataChanged', null);
+
+    final result = engine.eval('x');
+    expect(result.stderr, '$errorStr\n');
+  });
+
   tearDownAll(() {
     engine.dispose();
   });

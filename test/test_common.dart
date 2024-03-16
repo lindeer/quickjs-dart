@@ -70,6 +70,18 @@ export class User {
     expect(result.value, 'undefined');
   });
 
+  test('test setTimeout', () async {
+    const code = 'var count=0;setTimeout(() => {count++;}, 3000);count;';
+    var result = engine.eval(code);
+    expect(result.stderr, null);
+    expect(result.value, '0');
+    await Future.delayed(Duration(milliseconds: 3000));
+
+    result = engine.eval('count');
+    expect(result.stderr, null);
+    expect(result.value, '1');
+  });
+
   test('run quickjs tests', () {
     _runQjsTest('src/tests/test_closure.js');
     _runQjsTest('src/tests/test_language.js');

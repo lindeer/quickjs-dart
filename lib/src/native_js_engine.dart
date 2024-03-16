@@ -1,5 +1,8 @@
+import 'dart:async' show Timer;
 import 'dart:convert' show json;
 import 'dart:ffi' as ffi;
+
+import 'package:ffi/ffi.dart' show calloc;
 
 import 'common.dart' as c;
 import 'ffi.dart';
@@ -46,6 +49,7 @@ final class NativeJsEngine {
     final globalThis = lib.JS_GetGlobalObject(ctx);
     e._bindConsole(globalThis, 'console');
     e._bindNotify(globalThis, '_ffiNotify');
+    e._bindSetTimer(globalThis, 'setTimeout');
     final pf = ffi.Pointer.fromFunction<_DartJSModuleLoadFunc>(_loadJsModule);
     lib.JS_SetModuleLoaderFunc(rt, ffi.nullptr, pf, ffi.nullptr);
     cStr.pavedBy(name);
@@ -222,5 +226,53 @@ final class NativeJsEngine {
       lib.JS_FreeCString(ctx, data);
     }
     return c.JS_UNDEFINED;
+  }
+
+  void _bindSetTimer(lib.JSValue globalThis, String name) {
+    final pf = ffi.Pointer.fromFunction<_DartJSCFunction>(_dartSetTimeout);
+    final func = c.JS_NewCFunction(ctx, pf, ffi.nullptr, 2);
+    lib.JS_SetPropertyStr(ctx, globalThis, _buf.pavedBy(name), func);
+  }
+
+  static lib.JSValue _dartSetTimeout(ffi.Pointer<lib.JSContext> ctx,
+      lib.JSValue val, int argc, ffi.Pointer<lib.JSValue> argv) {
+    final func = argv[0];
+    if (lib.JS_IsFunction(ctx, func) == 0) {
+      final buf = NativeString.from("not a function");
+      final err = lib.JS_ThrowTypeError(ctx, buf.pointer);
+      buf.dispose();
+      return err;
+    }
+    final ptr = calloc.allocate<ffi.Int64>(ffi.sizeOf<ffi.Int64>());
+    var delay = 0;
+    try {
+      if (lib.JS_ToInt64(ctx, ptr, argv[1]) != 0) {
+        return c.JS_EXCEPTION;
+      }
+      delay = ptr.value;
+    } finally {
+      calloc.free(ptr);
+    }
+
+    // Save `JSValue` into memory, or else its value would be changed by Dart.
+    final pv = calloc.allocate<lib.JSValue>(ffi.sizeOf<lib.JSValue>());
+    // Increase the reference count for the new func object.
+    pv.ref = c.JS_DupValue(ctx, func);
+    Timer(Duration(milliseconds: delay), () {
+      _handleCall(ctx, pv.ref);
+      calloc.free(pv);
+    });
+    return c.JS_UNDEFINED;
+  }
+
+  static void _handleCall(ffi.Pointer<lib.JSContext> ctx, lib.JSValue func) {
+    // Not necessary to increase the reference count anymore, a little different
+    // from `call_handler` in `quickjs-libc.c`.
+    final ret = lib.JS_Call(ctx, func, c.JS_UNDEFINED, 0, ffi.nullptr);
+    if (c.JS_IsException(ret)) {
+      print('_handleCall: ${c.getJsError(ctx)}');
+    }
+    c.JS_FreeValue(ctx, ret);
+    c.JS_FreeValue(ctx, func);
   }
 }

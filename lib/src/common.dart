@@ -39,6 +39,17 @@ lib.JSValue JS_NewCFunction(
     lib.JS_NewCFunction2(
         ctx, func, name, length, lib.JSCFunctionEnum.JS_CFUNC_generic, 0);
 
+/// Implement `static inline JSValue JS_DupValue(JSContext *ctx, JSValueConst v)`
+/// in `quickjs.h`.
+// ignore: non_constant_identifier_names
+lib.JSValue JS_DupValue(ffi.Pointer<lib.JSContext> ctx, lib.JSValue val) {
+  if (JS_VALUE_HAS_REF_COUNT(val)) {
+    final p = JS_VALUE_GET_PTR(val).cast<lib.JSRefCountHeader>();
+    p.ref.ref_count++;
+  }
+  return val;
+}
+
 /// Implement `static inline void JS_FreeValue(JSContext *ctx, JSValue v)` in
 /// `quickjs.h`, 'cause inline functions are not supported by ffigen.
 // ignore: non_constant_identifier_names

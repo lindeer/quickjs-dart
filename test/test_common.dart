@@ -3,7 +3,16 @@ import 'dart:io';
 import 'package:quickjs/src/native_js_engine.dart';
 import 'package:test/test.dart';
 
+const _module = """
+export class User {
+  constructor(name) {
+    this.name = name;
+  }
+}
+""";
+
 void main() {
+  final manager = ManagerTester();
   final engine = NativeJsEngine(name: '<test>');
 
   test('test get js error', () {
@@ -31,13 +40,6 @@ void main() {
   });
 
   test('test js import', () {
-    const module = """
-export class User {
-  constructor(name) {
-    this.name = name;
-  }
-}
-""";
     const code = "import {User} from './user.js';";
     const exe = "var user = new User('Alem');console.log(user.name);";
     const errorSyntax = """SyntaxError: expecting '('
@@ -46,7 +48,7 @@ export class User {
     const errorRef = """ReferenceError: 'User' is not defined
     at <eval> (<test>:1)
 """;
-    String moduleReader(String _) => module;
+    String moduleReader(String _) => _module;
     NativeJsEngine.strReader = moduleReader;
     var result = engine.eval(code);
     expect(result.stdout, null);
@@ -82,6 +84,21 @@ export class User {
     expect(result.value, '1');
   });
 
+  test('test different engines', () {
+    const names = ['John', 'George', 'Friday'];
+    const module = '${_module}globalThis.User=User;';
+    final results = names.map((name) {
+      final e = NativeJsEngine(name: '<test-$name>');
+      e.eval(module, evalType: EvalType.module);
+      final result = e.eval('new User("$name").name;');
+      e.dispose();
+      return result;
+    });
+    expect(results.map((e) => e.stderr), [null, null, null]);
+    expect(results.map((e) => e.value), names);
+    expect(manager.length, 1);
+  });
+
   test('run quickjs tests', () {
     _runQjsTest('src/tests/test_closure.js');
     _runQjsTest('src/tests/test_language.js');
@@ -92,6 +109,8 @@ export class User {
 
   tearDownAll(() {
     engine.dispose();
+    expect(manager.length, 0);
+    manager.dispose();
   });
 }
 

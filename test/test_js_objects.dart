@@ -72,14 +72,12 @@ let page = Page({
 """;
 
 void main() {
-  final engine = NativeJsEngine(name: '<test_obj>');
+  final manager = ManagerTester();
+  final engine = NativeJsEngine(name: '<test_obj>',
+      code: '$_module globalThis.Page=Page;');
 
   test('test scope evaluation', () {
-    var result = engine.eval('$_module globalThis.Page=Page;',
-        evalType: EvalType.module);
-    expect(result.stderr, null);
-
-    result = engine.eval(_code);
+    var result = engine.eval(_code);
     expect(result.stderr, null);
 
     final jobVal = engine.eval('with (page) {data.job}');
@@ -122,5 +120,6 @@ void main() {
 
   tearDownAll(() {
     engine.dispose();
+    manager.dispose();
   });
 }

@@ -3,6 +3,7 @@ import 'dart:convert' show json;
 import 'dart:ffi' as ffi;
 
 import 'package:ffi/ffi.dart' show calloc;
+import 'package:meta/meta.dart' show visibleForTesting;
 
 import 'common.dart' as c;
 import 'ffi.dart';
@@ -29,31 +30,21 @@ enum EvalType {
 
 /// The JsEngine that directly interop with C API.
 final class NativeJsEngine {
-  final ffi.Pointer<lib.JSRuntime> rt;
+  final int _id;
   final ffi.Pointer<lib.JSContext> ctx;
   final String filename;
-
-  /// A char buffer for interoperation with C.
-  final NativeString _buf;
   final _stdout = StringBuffer();
   final _notifyDict = <String, JSNotifyFunction>{};
 
-  NativeJsEngine._(this.rt, this.ctx, this.filename, this._buf);
+  NativeJsEngine._(this._id, this.ctx, this.filename);
 
-  factory NativeJsEngine({String? name}) {
-    name ??= '<input>';
-    final rt = lib.JS_NewRuntime();
-    final ctx = lib.JS_NewContext(rt);
-    final cStr = NativeString();
-    final e = NativeJsEngine._(rt, ctx, name, cStr);
-    final globalThis = lib.JS_GetGlobalObject(ctx);
-    e._bindConsole(globalThis, 'console');
-    e._bindNotify(globalThis, '_ffiNotify');
-    e._bindSetTimer(globalThis, 'setTimeout');
-    final pf = ffi.Pointer.fromFunction<_DartJSModuleLoadFunc>(_loadJsModule);
-    lib.JS_SetModuleLoaderFunc(rt, ffi.nullptr, pf, ffi.nullptr);
-    cStr.pavedBy(name);
-    c.JS_FreeValue(ctx, globalThis);
+  /// Create a engine instance with [code] as module
+  factory NativeJsEngine({String? name, String? code}) {
+    final (e, r) = _manager.createEngine(name ?? '<input>', code);
+    final err = r?.stderr;
+    if (err != null) {
+      throw Exception(err);
+    }
     return e;
   }
 
@@ -64,7 +55,7 @@ final class NativeJsEngine {
       ctx,
       buf.pointer,
       buf.length,
-      _buf.pointer,
+      _manager.buf.pavedBy(filename),
       evalType == EvalType.global
           ? lib.JS_EVAL_TYPE_GLOBAL
           : lib.JS_EVAL_TYPE_MODULE,
@@ -89,16 +80,158 @@ final class NativeJsEngine {
 
   /// Release the native resources.
   void dispose() {
-    _buf.dispose();
-
     lib.JS_FreeContext(ctx);
-    lib.JS_FreeRuntime(rt);
+    _manager.onDisposed(this);
   }
-
-  static final _consoleDict = <int, NativeJsEngine>{};
 
   static lib.JSValue _consoleLog(ffi.Pointer<lib.JSContext> ctx,
       lib.JSValue val, int argc, ffi.Pointer<lib.JSValue> argv) {
+    return _manager.bindConsoleLog(ctx, val, argc, argv);
+  }
+
+  void _bindConsole(lib.JSValue globalThis, String name) {
+    // ignore: no_leading_underscores_for_local_identifiers
+    final _buf = _manager.buf;
+    final str = _buf.pavedBy('log');
+    final console = lib.JS_NewObject(ctx);
+    final pf = ffi.Pointer.fromFunction<_DartJSCFunction>(_consoleLog);
+    final func = c.JS_NewCFunction(ctx, pf, str, 1);
+    lib.JS_SetPropertyStr(ctx, console, str, func);
+    lib.JS_SetPropertyStr(ctx, globalThis, _buf.pavedBy(name), console);
+    _manager._consoleDict[c.hashJsValue(console)] = this;
+  }
+
+  static set strReader(DartStringReader? reader) {
+    _manager.strReader = reader;
+  }
+
+  /// For a js global variable [name], bridge it with a ffi callback by [type].
+  bool bridgeNotifyObject(String name) {
+    final globalThis = lib.JS_GetGlobalObject(ctx);
+    final str = _manager.buf.pavedBy(name);
+    final obj = lib.JS_GetPropertyStr(ctx, globalThis, str);
+
+    if (c.JS_IsException(obj)) {
+      print('Error: bridgeJsObject: ${c.getJsError(ctx)}');
+      return false;
+    }
+    _manager._notifyEngineDict[c.hashJsValue(obj)] = this;
+
+    c.JS_FreeValue(ctx, obj);
+    c.JS_FreeValue(ctx, globalThis);
+    return true;
+  }
+
+  /// Register a [func] method with [name] that receive the changed data.
+  /// Remove the [name] callback if [func] is null.
+  void registerNotify(String name, JSNotifyFunction? func) {
+    if (func == null) {
+      _notifyDict.remove(name);
+    } else {
+      _notifyDict[name] = func;
+    }
+  }
+
+  /// Bind ffi callback with the global object
+  void _bindNotify(lib.JSValue globalThis, String name) {
+    final pf = ffi.Pointer.fromFunction<_DartJSCFunction>(_dartOnNotified);
+    final func = c.JS_NewCFunction(ctx, pf, ffi.nullptr, 2);
+    // ignore: no_leading_underscores_for_local_identifiers
+    final _buf = _manager.buf;
+    lib.JS_SetPropertyStr(ctx, globalThis, _buf.pavedBy(name), func);
+  }
+
+  /// The ffi callback that handle the js functions with 2 params.
+  static lib.JSValue _dartOnNotified(ffi.Pointer<lib.JSContext> ctx,
+      lib.JSValue val, int argc, ffi.Pointer<lib.JSValue> argv) {
+    return _manager.onNotified(ctx, val, argc, argv);
+  }
+
+  void _bindSetTimer(lib.JSValue globalThis, String name) {
+    final pf = ffi.Pointer.fromFunction<_DartJSCFunction>(_dartSetTimeout);
+    final func = c.JS_NewCFunction(ctx, pf, ffi.nullptr, 2);
+    // ignore: no_leading_underscores_for_local_identifiers
+    final _buf = _manager.buf;
+    lib.JS_SetPropertyStr(ctx, globalThis, _buf.pavedBy(name), func);
+  }
+
+  static lib.JSValue _dartSetTimeout(ffi.Pointer<lib.JSContext> ctx,
+      lib.JSValue val, int argc, ffi.Pointer<lib.JSValue> argv) {
+    return _manager.bindSetTimeout(ctx, val, argc, argv);
+  }
+}
+
+/// Only one global instance for a Isolation. It was designed to hold engine
+/// instances in one isolate.
+late _EngineManager _manager;
+
+@visibleForTesting
+final class ManagerTester {
+  ManagerTester() {
+    _manager = _EngineManager();
+  }
+
+  void dispose() => _manager.dispose();
+
+  int get length => _manager._engines.length;
+}
+
+final class _EngineManager {
+  final ffi.Pointer<lib.JSRuntime> rt;
+  final _engines = <int, NativeJsEngine>{};
+  var _count = 0;
+  DartStringReader? strReader;
+  final _consoleDict = <int, NativeJsEngine>{};
+
+  /// The dict map an js object to an engine instance for notification from js.
+  final _notifyEngineDict = <int, NativeJsEngine>{};
+
+  /// A char buffer of small chunk size, shared by all engines.
+  final buf = NativeString();
+
+  _EngineManager._(this.rt);
+
+  factory _EngineManager() {
+    final rt = lib.JS_NewRuntime();
+    final pf = ffi.Pointer.fromFunction<_DartJSModuleLoadFunc>(_loadJsModule);
+    lib.JS_SetModuleLoaderFunc(rt, ffi.nullptr, pf, ffi.nullptr);
+    return _EngineManager._(rt);
+  }
+
+  /// The implementation of engine creation.
+  (NativeJsEngine, JsEvalResult?) createEngine(String name, String? code) {
+    final ctx = lib.JS_NewContext(rt);
+    final e = NativeJsEngine._(++_count, ctx, name);
+    _engines[e._id] = e;
+    final globalThis = lib.JS_GetGlobalObject(ctx);
+    e._bindConsole(globalThis, 'console');
+    e._bindNotify(globalThis, '_ffiNotify');
+    e._bindSetTimer(globalThis, 'setTimeout');
+    c.JS_FreeValue(ctx, globalThis);
+    JsEvalResult? result;
+    if (code != null) {
+      result = e.eval(code, evalType: EvalType.module);
+    }
+    return (e, result);
+  }
+
+  /// Notified if a engine disposed.
+  void onDisposed(NativeJsEngine e) {
+    _notifyEngineDict.removeWhere((key, value) => value == e);
+    _consoleDict.removeWhere((key, value) => value == e);
+    _engines.remove(e._id);
+  }
+
+  /// Destroy js runtime
+  void dispose() {
+    strReader = null;
+    lib.JS_FreeRuntime(rt);
+    print("js runtime terminated!");
+  }
+
+  /// Implement `console.log` for the given [ctx] within [val] object.
+  lib.JSValue bindConsoleLog(ffi.Pointer<lib.JSContext> ctx, lib.JSValue val,
+      int argc, ffi.Pointer<lib.JSValue> argv) {
     final strings = List.generate(argc, (i) {
       final arg = argv[i];
       final ptr = lib.JS_ToCStringLen2(ctx, ffi.nullptr, arg, 0);
@@ -119,25 +252,13 @@ final class NativeJsEngine {
     return c.JS_UNDEFINED;
   }
 
-  void _bindConsole(lib.JSValue globalThis, String name) {
-    final str = _buf.pavedBy('log');
-    final console = lib.JS_NewObject(ctx);
-    final pf = ffi.Pointer.fromFunction<_DartJSCFunction>(_consoleLog);
-    final func = c.JS_NewCFunction(ctx, pf, str, 1);
-    lib.JS_SetPropertyStr(ctx, console, str, func);
-    lib.JS_SetPropertyStr(ctx, globalThis, _buf.pavedBy(name), console);
-    _consoleDict[c.hashJsValue(console)] = this;
-  }
-
-  static DartStringReader? strReader;
-
   static ffi.Pointer<lib.JSModuleDef> _loadJsModule(
     ffi.Pointer<lib.JSContext> ctx,
     ffi.Pointer<ffi.Char> name,
     ffi.Pointer<ffi.Void> opaque,
   ) {
     final path = NativeString.toDartString(name);
-    final code = strReader?.call(path);
+    final code = _manager.strReader?.call(path);
     if (code == null) {
       return ffi.nullptr;
     }
@@ -153,56 +274,9 @@ final class NativeJsEngine {
     return module;
   }
 
-  T _safeCBuffer<T>(String name, T Function(ffi.Pointer<ffi.Char> str) f) {
-    try {
-      return f.call(_buf.pavedBy(name));
-    } finally {
-      // we need restore the content in buf
-      _buf.pavedBy(filename);
-    }
-  }
-
-  /// For a js global variable [name], bridge it with a ffi callback by [type].
-  bool bridgeNotifyObject(String name) {
-    final globalThis = lib.JS_GetGlobalObject(ctx);
-    final obj = _safeCBuffer(name, (str) {
-      return lib.JS_GetPropertyStr(ctx, globalThis, str);
-    });
-
-    if (c.JS_IsException(obj)) {
-      print('Error: bridgeJsObject: ${c.getJsError(ctx)}');
-      return false;
-    }
-    _notifyEngineDict[c.hashJsValue(obj)] = this;
-
-    c.JS_FreeValue(ctx, obj);
-    c.JS_FreeValue(ctx, globalThis);
-    return true;
-  }
-
-  /// Register a [func] method with [name] that receive the changed data.
-  /// Remove the [name] callback if [func] is null.
-  void registerNotify(String name, JSNotifyFunction? func) {
-    if (func == null) {
-      _notifyDict.remove(name);
-    } else {
-      _notifyDict[name] = func;
-    }
-  }
-
-  /// The dict map an js object to an engine instance for function2.
-  static final _notifyEngineDict = <int, NativeJsEngine>{};
-
-  /// Bind ffi callback with the global object
-  void _bindNotify(lib.JSValue globalThis, String name) {
-    final pf = ffi.Pointer.fromFunction<_DartJSCFunction>(_dartOnNotified);
-    final func = c.JS_NewCFunction(ctx, pf, ffi.nullptr, 2);
-    lib.JS_SetPropertyStr(ctx, globalThis, _buf.pavedBy(name), func);
-  }
-
   /// The ffi callback that handle the js functions with 2 params.
-  static lib.JSValue _dartOnNotified(ffi.Pointer<lib.JSContext> ctx,
-      lib.JSValue val, int argc, ffi.Pointer<lib.JSValue> argv) {
+  lib.JSValue onNotified(ffi.Pointer<lib.JSContext> ctx, lib.JSValue val,
+      int argc, ffi.Pointer<lib.JSValue> argv) {
     final method = lib.JS_ToCStringLen2(ctx, ffi.nullptr, argv[0], 0);
     final data = lib.JS_ToCStringLen2(ctx, ffi.nullptr, argv[1], 0);
     final m = NativeString.toDartString(method);
@@ -228,19 +302,11 @@ final class NativeJsEngine {
     return c.JS_UNDEFINED;
   }
 
-  void _bindSetTimer(lib.JSValue globalThis, String name) {
-    final pf = ffi.Pointer.fromFunction<_DartJSCFunction>(_dartSetTimeout);
-    final func = c.JS_NewCFunction(ctx, pf, ffi.nullptr, 2);
-    lib.JS_SetPropertyStr(ctx, globalThis, _buf.pavedBy(name), func);
-  }
-
-  static lib.JSValue _dartSetTimeout(ffi.Pointer<lib.JSContext> ctx,
-      lib.JSValue val, int argc, ffi.Pointer<lib.JSValue> argv) {
+  lib.JSValue bindSetTimeout(ffi.Pointer<lib.JSContext> ctx, lib.JSValue val,
+      int argc, ffi.Pointer<lib.JSValue> argv) {
     final func = argv[0];
     if (lib.JS_IsFunction(ctx, func) == 0) {
-      final buf = NativeString.from("not a function");
-      final err = lib.JS_ThrowTypeError(ctx, buf.pointer);
-      buf.dispose();
+      final err = lib.JS_ThrowTypeError(ctx, buf.pavedBy('not a function'));
       return err;
     }
     final ptr = calloc.allocate<ffi.Int64>(ffi.sizeOf<ffi.Int64>());

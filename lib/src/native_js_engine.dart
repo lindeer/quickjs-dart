@@ -1,6 +1,7 @@
 import 'dart:async' show Timer;
 import 'dart:convert' show json;
 import 'dart:ffi' as ffi;
+import 'dart:isolate';
 
 import 'package:ffi/ffi.dart' show calloc;
 import 'package:meta/meta.dart' show visibleForTesting;
@@ -341,4 +342,64 @@ final class _EngineManager {
     c.JS_FreeValue(ctx, ret);
     c.JS_FreeValue(ctx, func);
   }
+}
+
+const _closeTag = '__close__';
+const closeCommand = <String, dynamic>{'cmd': _closeTag};
+
+void engineIsolate(SendPort outgoing) async {
+  final incoming = ReceivePort('_isolate.incoming');
+  outgoing.send(incoming.sendPort);
+  final manager = _manager = _EngineManager();
+  final requests = incoming.cast<Map<String, dynamic>>();
+  await for (final req in requests) {
+    final cmd = req['cmd'];
+    if (cmd == _closeTag) {
+      print("Isolate received '$cmd', start closing ...");
+      break;
+    }
+    switch (cmd) {
+      case 'create':
+        final filename = req['filename'];
+        final code = req['code'];
+        final (e, result) = manager.createEngine(filename, code);
+        final data = result?.raw;
+        outgoing.send({
+          'id': e._id,
+          if (data != null) ...data,
+        });
+        break;
+      case 'eval':
+        final id = req['id'];
+        final code = req['code'];
+        final e = manager._engines[id];
+        if (e == null) {
+          throw Exception("invalid id '$id'");
+        }
+        final type = req['type'] == EvalType.module.index
+            ? EvalType.module
+            : EvalType.global;
+        final result = e.eval(code, evalType: type);
+        final data = result.raw;
+        outgoing.send({
+          'id': e._id,
+          ...data,
+        });
+        break;
+      case 'dispose':
+        final id = req['id'];
+        final e = manager._engines[id];
+        if (e == null) {
+          print("engine id '$id' not found!");
+          break;
+        }
+        e.dispose();
+        outgoing.send({
+          'id': e._id,
+        });
+        break;
+    }
+  }
+  manager.dispose();
+  outgoing.send(closeCommand);
 }

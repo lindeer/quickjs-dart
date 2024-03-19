@@ -19,5 +19,21 @@ final class JsEvalResult {
     this.isPromise = false,
   });
 
+  factory JsEvalResult.from(Map<String, dynamic> data) {
+    return JsEvalResult(
+      value: data['value'] ?? '',
+      stdout: data['stdout'],
+      stderr: data['stderr'],
+      isPromise: data['is_promise'] ?? false,
+    );
+  }
+
   bool get isError => stderr != null;
+
+  Map<String, dynamic> get raw => {
+        'value': value,
+        if (stdout != null) 'stdout': stdout,
+        if (stderr != null) 'stderr': stderr,
+        'is_promise': isPromise,
+      };
 }

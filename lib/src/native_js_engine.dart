@@ -358,6 +358,10 @@ void engineIsolate(SendPort outgoing) async {
       print("Isolate received '$cmd', start closing ...");
       break;
     }
+    // Error happened by `js_check_stack_overflow` in `next_token`, which is
+    // called by `js_parse_program`, and found stack top was changed by Dart
+    // async.
+    lib.JS_UpdateStackTop(manager.rt);
     switch (cmd) {
       case 'create':
         final filename = req['filename'];

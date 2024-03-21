@@ -345,6 +345,7 @@ final class _EngineManager {
 }
 
 const _closeTag = '__close__';
+const closeCommandKey = _closeTag;
 const closeCommand = <String, dynamic>{'cmd': _closeTag};
 
 void engineIsolate(SendPort outgoing) async {
@@ -369,6 +370,7 @@ void engineIsolate(SendPort outgoing) async {
         final (e, result) = manager.createEngine(filename, code);
         final data = result?.raw;
         outgoing.send({
+          'cmd': cmd,
           'id': e._id,
           if (data != null) ...data,
         });
@@ -386,6 +388,7 @@ void engineIsolate(SendPort outgoing) async {
         final result = e.eval(code, evalType: type);
         final data = result.raw;
         outgoing.send({
+          'cmd': cmd,
           'id': e._id,
           ...data,
         });
@@ -399,6 +402,7 @@ void engineIsolate(SendPort outgoing) async {
         }
         e.dispose();
         outgoing.send({
+          'cmd': cmd,
           'id': e._id,
         });
         break;

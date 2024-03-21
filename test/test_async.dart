@@ -13,7 +13,6 @@ globalThis.User = User;
 void main() async {
   final manager = await JsEngineManager.create();
 
-  /*
   test('test async eval', () async {
     const expressions = ['3+4', 'console.log("Hello~")'];
     final engines = await Future.wait(List.generate(expressions.length, (i) {
@@ -30,7 +29,7 @@ void main() async {
     await Future.wait(engines.map((e) => e.dispose()));
     expect(manager.length, 0);
   });
-   */
+
   test('test async one-by-one', () async {
     const expressions = ['3+4', 'console.log("Hello~")'];
     final engines = [

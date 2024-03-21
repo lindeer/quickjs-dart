@@ -1,3 +1,4 @@
+import 'dart:async' show Completer;
 import 'dart:isolate';
 
 import 'src/js_eval_result.dart';
@@ -28,10 +29,10 @@ final class JsEngineManager {
   final ReceivePort _recv;
   final Isolate _isolate;
   final SendPort _send;
-  final Stream<Map<String, dynamic>> _receiving;
   final _engines = <int, JsEngine>{};
+  final _futures = <Completer>[];
 
-  JsEngineManager._(this._recv, this._isolate, this._send, this._receiving);
+  JsEngineManager._(this._recv, this._isolate, this._send);
 
   /// Async create a manager instance. One instance one isolate.
   static Future<JsEngineManager> create() async {
@@ -45,57 +46,77 @@ final class JsEngineManager {
     final receiving = recv.asBroadcastStream();
     final send = (await receiving.first) as SendPort;
     final data = receiving.cast<Map<String, dynamic>>();
-    return JsEngineManager._(recv, isolate, send, data);
+    final manager = JsEngineManager._(recv, isolate, send);
+    data.listen(manager._onDataArrived);
+    return manager;
   }
 
   /// To create an engine instance with [filename] and [code].
   /// [filename] would be used as a tag for error report.
   /// [code] would be treat as a js module to evaluate.
   Future<JsEngine> createEngine(String filename, {String? code}) async {
-    _send.send({
+    return _sendWaitFor({
       'cmd': 'create',
       'filename': filename,
       if (code != null) 'code': code,
     });
-    final data = await _receiving.first;
+  }
+
+  void _onCreated(Map<String, dynamic> data) {
+    final c = _futures.removeAt(0) as Completer<JsEngine>;
     final result = JsEvalResult.from(data);
-    if (result.isError) {
-      throw Exception(result.stderr);
+    final err = result.stderr;
+    if (err != null) {
+      c.completeError(err);
+      return;
     }
 
     final id = data['id'] ?? 0;
     if (id < 1) {
-      throw Exception("Illegal engine id: '$id'");
+      c.completeError("Illegal engine id: '$id'");
+      return;
     }
     final e = JsEngine._(id, this);
     _engines[id] = e;
-    return e;
+    c.complete(e);
   }
 
   /// Specify an js engine with [id] to evaluate the give [code]. If not
   /// specified, [type] would be `global`.
   Future<JsEvalResult> eval(int id, String code, {EvalType? type}) async {
-    _send.send({
+    return _sendWaitFor({
       'cmd': 'eval',
       'id': id,
       'code': code,
       if (type != null) 'type': type.index,
     });
-    final data = await _receiving.first;
+  }
+
+  void _onEvalDone(Map<String, dynamic> data) {
+    final c = _futures.removeAt(0) as Completer<JsEvalResult>;
     final result = JsEvalResult.from(data);
-    return result;
+    final err = result.stderr;
+    err != null ? c.completeError(err) : c.complete(result);
   }
 
   /// Dispose an js engine with [id].
   Future<void> disposeEngine(int id) async {
     print("engine-$id: disposing...");
-    _send.send({
+    return _sendWaitFor({
       'cmd': 'dispose',
       'id': id,
     });
-    final data = await _receiving.first;
+  }
+
+  void _onDisposed(Map<String, dynamic> data) {
+    final c = _futures.removeAt(0) as Completer<void>;
     final targetId = data['id'] ?? 0;
+    if (targetId < 1) {
+      c.completeError("Engine id: '$targetId' not exists!");
+      return;
+    }
     _engines.remove(targetId);
+    c.complete();
     print("engine-$targetId: disposed.");
   }
 
@@ -103,8 +124,12 @@ final class JsEngineManager {
   /// isolate.
   Future<void> dispose() async {
     print("manager: disposing native engines ...");
-    _send.send(closeCommand);
-    await _receiving.first;
+    return _sendWaitFor(closeCommand);
+  }
+
+  void _onClosed(Map<String, dynamic> data) {
+    final c = _futures.removeAt(0) as Completer<void>;
+    c.complete();
     print("manager: native engines disposed.");
     _recv.close();
     _isolate.kill();
@@ -112,4 +137,29 @@ final class JsEngineManager {
 
   /// Current engine counts.
   int get length => _engines.length;
+
+  Future<T> _sendWaitFor<T>(Map<String, dynamic> data) {
+    _send.send(data);
+    final c = Completer<T>();
+    _futures.add(c);
+    return c.future;
+  }
+
+  void _onDataArrived(Map<String, dynamic> data) {
+    final cmd = data['cmd'];
+    switch (cmd) {
+      case 'create':
+        _onCreated(data);
+        break;
+      case 'eval':
+        _onEvalDone(data);
+        break;
+      case 'dispose':
+        _onDisposed(data);
+        break;
+      case closeCommandKey:
+        _onClosed(data);
+        break;
+    }
+  }
 }

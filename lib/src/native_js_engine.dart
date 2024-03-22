@@ -20,6 +20,8 @@ typedef _DartJSModuleLoadFunc = ffi.Pointer<lib.JSModuleDef> Function(
     ffi.Pointer<ffi.Void> opaque);
 
 typedef DartStringReader = String Function(String name);
+typedef DartNotifier = void Function(
+    NativeJsEngine engine, String method, Map<String, dynamic> data);
 
 /// A notify function that receive the changed data.
 typedef JSNotifyFunction = void Function(Map<String, dynamic> data);
@@ -35,7 +37,7 @@ final class NativeJsEngine {
   final ffi.Pointer<lib.JSContext> ctx;
   final String filename;
   final _stdout = StringBuffer();
-  final _notifyDict = <String, JSNotifyFunction>{};
+  Map<String, JSNotifyFunction>? _notifyDict;
 
   NativeJsEngine._(this._id, this.ctx, this.filename);
 
@@ -102,8 +104,16 @@ final class NativeJsEngine {
     _manager._consoleDict[c.hashJsValue(console)] = this;
   }
 
+  /// Set a global string reader function in Dart world, it would load js code
+  /// from the give [name], may be a time-consumed operation.
   static set strReader(DartStringReader? reader) {
     _manager.strReader = reader;
+  }
+
+  /// Set a global notify function in Dart world, or else find the right engine,
+  /// and call its registered notify function by [registerNotify].
+  static set onDartNotifier(DartNotifier? notifier) {
+    _manager.onDartNotified = notifier;
   }
 
   /// For a js global variable [name], bridge it with a ffi callback by [type].
@@ -126,10 +136,19 @@ final class NativeJsEngine {
   /// Register a [func] method with [name] that receive the changed data.
   /// Remove the [name] callback if [func] is null.
   void registerNotify(String name, JSNotifyFunction? func) {
+    final dict = _notifyDict;
     if (func == null) {
-      _notifyDict.remove(name);
+      if (dict != null) {
+        dict.remove(name);
+      }
     } else {
-      _notifyDict[name] = func;
+      if (dict != null) {
+        dict[name] = func;
+      } else {
+        _notifyDict = {
+          name: func,
+        };
+      }
     }
   }
 
@@ -183,6 +202,7 @@ final class _EngineManager {
   var _count = 0;
   DartStringReader? strReader;
   final _consoleDict = <int, NativeJsEngine>{};
+  DartNotifier? onDartNotified;
 
   /// The dict map an js object to an engine instance for notification from js.
   final _notifyEngineDict = <int, NativeJsEngine>{};
@@ -284,10 +304,10 @@ final class _EngineManager {
     final d = NativeString.toDartString(data);
 
     final engine = _notifyEngineDict[c.hashJsValue(val)];
-    final func = engine?._notifyDict[m];
-    if (func != null) {
+    final func = onDartNotified ?? _onNotifiedDefault;
+    if (engine != null) {
       final map = json.decode(d);
-      func.call(map);
+      func.call(engine, m, map);
     } else {
       final warning = engine == null
           ? 'Engine instance not found!'
@@ -301,6 +321,12 @@ final class _EngineManager {
       lib.JS_FreeCString(ctx, data);
     }
     return c.JS_UNDEFINED;
+  }
+
+  void _onNotifiedDefault(
+      NativeJsEngine engine, String method, Map<String, dynamic> data) {
+    final dict = engine._notifyDict;
+    dict?[method]?.call(data);
   }
 
   lib.JSValue bindSetTimeout(ffi.Pointer<lib.JSContext> ctx, lib.JSValue val,

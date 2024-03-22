@@ -5,11 +5,13 @@ import 'src/js_eval_result.dart';
 import 'src/native_js_engine.dart';
 
 export 'src/js_eval_result.dart';
+export 'src/native_js_engine.dart' show JSNotifyFunction;
 
 /// Javascript engine object in main isolate.
 final class JsEngine {
   final int _id;
   final JsEngineManager _manager;
+  final _notifiers = <String, JSNotifyFunction>{};
 
   JsEngine._(this._id, this._manager);
 
@@ -18,6 +20,14 @@ final class JsEngine {
 
   /// Notify the engine isolate to dispose this engine.
   Future<void> dispose() => _manager.disposeEngine(_id);
+
+  void registerBridge(String method, JSNotifyFunction? func) {
+    if (func == null) {
+      _notifiers.remove(method);
+    } else {
+      _notifiers[method] = func;
+    }
+  }
 
   @override
   String toString() => '{"id":$_id}';
@@ -135,6 +145,23 @@ final class JsEngineManager {
     _isolate.kill();
   }
 
+  void _onNotified(Map<String, dynamic> data) {
+    final targetId = data['id'] ?? 0;
+    if (targetId < 1) {
+      print("manager: notified '$targetId' not exists!");
+      return;
+    }
+    final e = _engines[targetId];
+    if (e == null) {
+      print("manager: notified '$targetId' not found!");
+      return;
+    }
+    final method = data['method'];
+    final params = data['data'] as Map<String, dynamic>;
+    e._notifiers[method]?.call(params);
+    print("manager: $e.$method($params) notified.");
+  }
+
   /// Current engine counts.
   int get length => _engines.length;
 
@@ -159,6 +186,9 @@ final class JsEngineManager {
         break;
       case closeCommandKey:
         _onClosed(data);
+        break;
+      case 'notify':
+        _onNotified(data);
         break;
     }
   }

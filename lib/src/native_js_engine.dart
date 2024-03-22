@@ -379,6 +379,14 @@ void engineIsolate(SendPort outgoing) async {
   outgoing.send(incoming.sendPort);
   final manager = _manager = _EngineManager();
   final requests = incoming.cast<Map<String, dynamic>>();
+  manager.onDartNotified = (engine, method, data) {
+    outgoing.send({
+      'cmd': 'notify',
+      'id': engine._id,
+      'method': method,
+      'data': data,
+    });
+  };
   await for (final req in requests) {
     final cmd = req['cmd'];
     if (cmd == _closeTag) {

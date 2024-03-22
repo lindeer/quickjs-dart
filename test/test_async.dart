@@ -51,6 +51,33 @@ void main() async {
     expect(manager.length, 0);
   });
 
+  test('test async notify', () async {
+    const code = """
+let scope = {
+  send(obj) {
+    _ffiNotify("_sendMsg", JSON.stringify(obj));
+  }
+};
+globalThis.scope = scope;
+    """;
+    final engines = await Future.wait(List.generate(2, (i) {
+      return manager.createEngine('<test$i>', code: code);
+    }));
+    final ok = [0, 0];
+    for (final (i, e) in engines.indexed) {
+      e.registerBridge('_sendMsg', (data) {
+        expect(data['no'], i);
+        ok[i] = i;
+      });
+    }
+    await Future.wait(engines.indexed.map((r) {
+      final (i, e) = r;
+
+      return e.eval('scope.send({no:$i});');
+    }));
+    expect(ok, [0, 1]);
+  });
+
   tearDownAll(() async {
     await manager.dispose();
   });

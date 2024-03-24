@@ -21,6 +21,7 @@ final class JsEngine {
   /// Notify the engine isolate to dispose this engine.
   Future<void> dispose() => _manager.disposeEngine(_id);
 
+  /// Bind the [method] in js world with [func] in Dart world.
   void registerBridge(String method, JSNotifyFunction? func) {
     if (func == null) {
       _notifiers.remove(method);
@@ -28,6 +29,19 @@ final class JsEngine {
       _notifiers[method] = func;
     }
   }
+
+  /// Find a js object called [name] and bind it with `_ffiNotify`.
+  /// The builtin method `_ffiNotify` should be called within its context:
+  /// ```js
+  /// let obj = {
+  ///   notify(obj) {
+  ///     _ffiNotify("the_registered_method", JSON.stringify(obj));
+  ///   }
+  /// };
+  ///
+  /// ```
+  /// Return [true] if the given [name] object found.
+  Future<bool> bindBridge(String name) => _manager.bindBridge(_id, name);
 
   @override
   String toString() => '{"id":$_id}';
@@ -145,6 +159,20 @@ final class JsEngineManager {
     _isolate.kill();
   }
 
+  Future<bool> bindBridge(int id, String name) {
+    return _sendWaitFor({
+      'cmd': 'bind',
+      'id': id,
+      'name': name,
+    });
+  }
+
+  void _onBind(Map<String, dynamic> data) {
+    final c = _futures.removeAt(0) as Completer<bool>;
+    final ok = (data['ok'] as bool?) ?? false;
+    c.complete(ok);
+  }
+
   void _onNotified(Map<String, dynamic> data) {
     final targetId = data['id'] ?? 0;
     if (targetId < 1) {
@@ -187,6 +215,8 @@ final class JsEngineManager {
       case closeCommandKey:
         _onClosed(data);
         break;
+      case 'bind':
+        _onBind(data);
       case 'notify':
         _onNotified(data);
         break;

@@ -61,20 +61,23 @@ let scope = {
 globalThis.scope = scope;
     """;
     final engines = await Future.wait(List.generate(2, (i) {
-      return manager.createEngine('<test$i>', code: code);
+      return manager.createEngine('<test$i>');
     }));
     final ok = [0, 0];
-    for (final (i, e) in engines.indexed) {
-      e.registerBridge('_sendMsg', (data) {
-        expect(data['no'], i);
-        ok[i] = i;
-      });
-    }
-    await Future.wait(engines.indexed.map((r) {
+    final results = await Future.wait(engines.indexed.expand((r) {
       final (i, e) = r;
-
-      return e.eval('scope.send({no:$i});');
+      e.registerBridge('_sendMsg', (data) {
+        ok[i] = data['no'] as int;
+      });
+      return <Future<bool>>[
+        e.eval(code).then((v) => v.value.isNotEmpty),
+        e.bindBridge('scope'),
+        e.eval('scope.send({no:$i});').then((v) => v.value.isNotEmpty),
+      ];
     }));
+    expect(results, List.filled(6, true));
+    expect(manager.length, 2);
+    await Future.wait(engines.map((e) => e.dispose()));
     expect(ok, [0, 1]);
   });
 

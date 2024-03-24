@@ -440,6 +440,20 @@ void engineIsolate(SendPort outgoing) async {
           'id': e._id,
         });
         break;
+      case 'bind':
+        final id = req['id'];
+        final e = manager._engines[id];
+        if (e == null) {
+          print("engine '$id' not found by '$cmd'!");
+          break;
+        }
+        final name = req['name'] as String;
+        final b = e.bridgeNotifyObject(name);
+        outgoing.send({
+          'ok': b,
+          ...req,
+        });
+        break;
     }
   }
   manager.dispose();

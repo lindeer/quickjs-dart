@@ -98,7 +98,6 @@ void main() {
   });
 
   test('test bridge with an object', () {
-    engine.bridgeNotifyObject('page');
     engine.registerNotify('_onDataChanged', (data) {
       expect(data['code'], 1);
     });

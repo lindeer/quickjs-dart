@@ -116,23 +116,6 @@ final class NativeJsEngine {
     _manager.onDartNotified = notifier;
   }
 
-  /// For a js global variable [name], bridge it with a ffi callback by [type].
-  bool bridgeNotifyObject(String name) {
-    final globalThis = lib.JS_GetGlobalObject(ctx);
-    final str = _manager.buf.pavedBy(name);
-    final obj = lib.JS_GetPropertyStr(ctx, globalThis, str);
-
-    if (c.JS_IsException(obj)) {
-      print('Error: bridgeJsObject: ${c.getJsError(ctx)}');
-      return false;
-    }
-    _manager._notifyEngineDict[c.hashJsValue(obj)] = this;
-
-    c.JS_FreeValue(ctx, obj);
-    c.JS_FreeValue(ctx, globalThis);
-    return true;
-  }
-
   /// Register a [func] method with [name] that receive the changed data.
   /// Remove the [name] callback if [func] is null.
   void registerNotify(String name, JSNotifyFunction? func) {
@@ -159,6 +142,7 @@ final class NativeJsEngine {
     // ignore: no_leading_underscores_for_local_identifiers
     final _buf = _manager.buf;
     lib.JS_SetPropertyStr(ctx, globalThis, _buf.pavedBy(name), func);
+    _manager._notifyEngineDict[ctx.address] = this;
   }
 
   /// The ffi callback that handle the js functions with 2 params.
@@ -303,7 +287,7 @@ final class _EngineManager {
     final m = NativeString.toDartString(method);
     final d = NativeString.toDartString(data);
 
-    final engine = _notifyEngineDict[c.hashJsValue(val)];
+    final engine = _notifyEngineDict[ctx.address];
     final func = onDartNotified ?? _onNotifiedDefault;
     if (engine != null) {
       final map = json.decode(d);
@@ -438,20 +422,6 @@ void engineIsolate(SendPort outgoing) async {
         outgoing.send({
           'cmd': cmd,
           'id': e._id,
-        });
-        break;
-      case 'bind':
-        final id = req['id'];
-        final e = manager._engines[id];
-        if (e == null) {
-          print("engine '$id' not found by '$cmd'!");
-          break;
-        }
-        final name = req['name'] as String;
-        final b = e.bridgeNotifyObject(name);
-        outgoing.send({
-          'ok': b,
-          ...req,
         });
         break;
     }

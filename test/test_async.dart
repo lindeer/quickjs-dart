@@ -80,6 +80,25 @@ globalThis.scope = scope;
     expect(ok, [0, 1]);
   });
 
+  test('test event sequence', () async {
+    final seq = <int>[];
+    const code = '_ffiNotify("_sendMsg", JSON.stringify({}));';
+    final engine = await manager.createEngine('<test-i>');
+    seq.add(0);
+    final result = await engine.eval(code);
+    expect(result.value, 'undefined');
+    seq.add(1);
+    engine.registerBridge('_sendMsg', (_) {
+      seq.add(2);
+    });
+    seq.add(3);
+    await engine.eval(code);
+    seq.add(4);
+    await engine.dispose();
+    seq.add(5);
+    expect(seq, [0, 1, 3, 2, 4, 5]);
+  });
+
   tearDownAll(() async {
     await manager.dispose();
   });

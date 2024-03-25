@@ -358,13 +358,17 @@ const _closeTag = '__close__';
 const closeCommandKey = _closeTag;
 const closeCommand = <String, dynamic>{'cmd': _closeTag};
 
-void engineIsolate(SendPort outgoing) async {
+/// [outgoing] port was to reply the command from main isolate, while [notifying]
+/// port was to send notify event at the time of executing js without command
+/// from main isolate.
+void engineIsolate((SendPort, SendPort) r) async {
+  final (outgoing, notifying) = r;
   final incoming = ReceivePort('_isolate.incoming');
   outgoing.send(incoming.sendPort);
   final manager = _manager = _EngineManager();
   final requests = incoming.cast<Map<String, dynamic>>();
   manager.onDartNotified = (engine, method, data) {
-    outgoing.send({
+    notifying.send({
       'cmd': 'notify',
       'id': engine._id,
       'method': method,

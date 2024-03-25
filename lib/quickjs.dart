@@ -38,27 +38,35 @@ final class JsEngine {
 /// `NativeJsEngine` are active in this isolate.
 final class JsEngineManager {
   final ReceivePort _recv;
+  final ReceivePort _notified;
   final Isolate _isolate;
   final SendPort _send;
   final _engines = <int, JsEngine>{};
-  final _futures = <Completer>[];
+  final _futures = <Completer<Map<String, dynamic>>>[];
 
-  JsEngineManager._(this._recv, this._isolate, this._send);
+  JsEngineManager._(
+    this._recv,
+    this._notified,
+    this._isolate,
+    this._send,
+  );
 
   /// Async create a manager instance. One instance one isolate.
   static Future<JsEngineManager> create() async {
     final recv = ReceivePort('main.incoming');
-    final isolate = await Isolate.spawn<SendPort>(
+    final notified = ReceivePort('main.notified');
+    final isolate = await Isolate.spawn<(SendPort, SendPort)>(
       engineIsolate,
-      recv.sendPort,
+      (recv.sendPort, notified.sendPort),
       errorsAreFatal: true,
       debugName: '_engineIsolate',
     );
     final receiving = recv.asBroadcastStream();
     final send = (await receiving.first) as SendPort;
     final data = receiving.cast<Map<String, dynamic>>();
-    final manager = JsEngineManager._(recv, isolate, send);
+    final manager = JsEngineManager._(recv, notified, isolate, send);
     data.listen(manager._onDataArrived);
+    notified.cast<Map<String, dynamic>>().listen(manager._onNotified);
     return manager;
   }
 
@@ -66,68 +74,55 @@ final class JsEngineManager {
   /// [filename] would be used as a tag for error report.
   /// [code] would be treat as a js module to evaluate.
   Future<JsEngine> createEngine(String filename, {String? code}) async {
-    return _sendWaitFor({
+    final data = await _sendWaitFor({
       'cmd': 'create',
       'filename': filename,
       if (code != null) 'code': code,
     });
-  }
-
-  void _onCreated(Map<String, dynamic> data) {
-    final c = _futures.removeAt(0) as Completer<JsEngine>;
     final result = JsEvalResult.from(data);
     final err = result.stderr;
     if (err != null) {
-      c.completeError(err);
-      return;
+      throw Exception('Engine create failed: $err');
     }
 
     final id = data['id'] ?? 0;
     if (id < 1) {
-      c.completeError("Illegal engine id: '$id'");
-      return;
+      throw Exception("Illegal engine created: '$id'");
     }
     final e = JsEngine._(id, this);
     _engines[id] = e;
-    c.complete(e);
+    return e;
   }
 
   /// Specify an js engine with [id] to evaluate the give [code]. If not
   /// specified, [type] would be `global`.
   Future<JsEvalResult> eval(int id, String code, {EvalType? type}) async {
-    return _sendWaitFor({
+    final data = await _sendWaitFor({
       'cmd': 'eval',
       'id': id,
       'code': code,
       if (type != null) 'type': type.index,
     });
-  }
-
-  void _onEvalDone(Map<String, dynamic> data) {
-    final c = _futures.removeAt(0) as Completer<JsEvalResult>;
     final result = JsEvalResult.from(data);
     final err = result.stderr;
-    err != null ? c.completeError(err) : c.complete(result);
+    if (err != null) {
+      throw Exception('Engine eval failed: $err');
+    }
+    return result;
   }
 
   /// Dispose an js engine with [id].
   Future<void> disposeEngine(int id) async {
     print("engine-$id: disposing...");
-    return _sendWaitFor({
+    final data = await _sendWaitFor({
       'cmd': 'dispose',
       'id': id,
     });
-  }
-
-  void _onDisposed(Map<String, dynamic> data) {
-    final c = _futures.removeAt(0) as Completer<void>;
     final targetId = data['id'] ?? 0;
     if (targetId < 1) {
-      c.completeError("Engine id: '$targetId' not exists!");
-      return;
+      print("Engine '$targetId' not exists!");
     }
     _engines.remove(targetId);
-    c.complete();
     print("engine-$targetId: disposed.");
   }
 
@@ -135,14 +130,10 @@ final class JsEngineManager {
   /// isolate.
   Future<void> dispose() async {
     print("manager: disposing native engines ...");
-    return _sendWaitFor(closeCommand);
-  }
-
-  void _onClosed(Map<String, dynamic> data) {
-    final c = _futures.removeAt(0) as Completer<void>;
-    c.complete();
+    await _sendWaitFor(closeCommand);
     print("manager: native engines disposed.");
     _recv.close();
+    _notified.close();
     _isolate.kill();
   }
 
@@ -166,31 +157,15 @@ final class JsEngineManager {
   /// Current engine counts.
   int get length => _engines.length;
 
-  Future<T> _sendWaitFor<T>(Map<String, dynamic> data) {
+  Future<Map<String, dynamic>> _sendWaitFor(Map<String, dynamic> data) {
     _send.send(data);
-    final c = Completer<T>();
+    final c = Completer<Map<String, dynamic>>();
     _futures.add(c);
     return c.future;
   }
 
   void _onDataArrived(Map<String, dynamic> data) {
-    final cmd = data['cmd'];
-    switch (cmd) {
-      case 'create':
-        _onCreated(data);
-        break;
-      case 'eval':
-        _onEvalDone(data);
-        break;
-      case 'dispose':
-        _onDisposed(data);
-        break;
-      case closeCommandKey:
-        _onClosed(data);
-        break;
-      case 'notify':
-        _onNotified(data);
-        break;
-    }
+    final c = _futures.removeAt(0);
+    c.complete(data);
   }
 }

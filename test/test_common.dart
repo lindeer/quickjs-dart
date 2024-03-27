@@ -12,7 +12,7 @@ export class User {
 """;
 
 void main() {
-  final manager = ManagerTester();
+  final manager = NativeEngineManager();
   final engine = NativeJsEngine(name: '<test>');
 
   test('test get js error', () {

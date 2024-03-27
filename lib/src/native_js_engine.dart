@@ -4,7 +4,6 @@ import 'dart:ffi' as ffi;
 import 'dart:isolate';
 
 import 'package:ffi/ffi.dart' show calloc;
-import 'package:meta/meta.dart' show visibleForTesting;
 
 import 'common.dart' as c;
 import 'ffi.dart';
@@ -169,9 +168,9 @@ final class NativeJsEngine {
 /// instances in one isolate.
 late _EngineManager _manager;
 
-@visibleForTesting
-final class ManagerTester {
-  ManagerTester() {
+/// A lightweight shell for initialization of the global variable.
+final class NativeEngineManager {
+  NativeEngineManager() {
     _manager = _EngineManager();
   }
 
@@ -231,7 +230,7 @@ final class _EngineManager {
   void dispose() {
     strReader = null;
     lib.JS_FreeRuntime(rt);
-    print("js runtime terminated!");
+    print("js runtime terminated! (${Isolate.current.debugName})");
   }
 
   /// Implement `console.log` for the given [ctx] within [val] object.

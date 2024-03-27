@@ -72,7 +72,7 @@ let page = Page({
 """;
 
 void main() {
-  final manager = ManagerTester();
+  final manager = NativeEngineManager();
   final engine = NativeJsEngine(name: '<test_obj>',
       code: '$_module globalThis.Page=Page;');
 

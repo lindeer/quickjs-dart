@@ -170,8 +170,8 @@ late _EngineManager _manager;
 
 /// A lightweight shell for initialization of the global variable.
 final class NativeEngineManager {
-  NativeEngineManager() {
-    _manager = _EngineManager();
+  NativeEngineManager({bool? verbose}) {
+    _manager = _EngineManager(verbose: verbose ?? false);
   }
 
   void dispose() => _manager.dispose();
@@ -181,6 +181,7 @@ final class NativeEngineManager {
 
 final class _EngineManager {
   final ffi.Pointer<lib.JSRuntime> rt;
+  final bool verbose;
   final _engines = <int, NativeJsEngine>{};
   var _count = 0;
   DartStringReader? strReader;
@@ -193,13 +194,13 @@ final class _EngineManager {
   /// A char buffer of small chunk size, shared by all engines.
   final buf = NativeString();
 
-  _EngineManager._(this.rt);
+  _EngineManager._(this.rt, this.verbose);
 
-  factory _EngineManager() {
+  factory _EngineManager({bool? verbose}) {
     final rt = lib.JS_NewRuntime();
     final pf = ffi.Pointer.fromFunction<_DartJSModuleLoadFunc>(_loadJsModule);
     lib.JS_SetModuleLoaderFunc(rt, ffi.nullptr, pf, ffi.nullptr);
-    return _EngineManager._(rt);
+    return _EngineManager._(rt, verbose ?? false);
   }
 
   /// The implementation of engine creation.
@@ -230,7 +231,13 @@ final class _EngineManager {
   void dispose() {
     strReader = null;
     lib.JS_FreeRuntime(rt);
-    print("js runtime terminated! (${Isolate.current.debugName})");
+    log("js runtime terminated! (${Isolate.current.debugName})");
+  }
+
+  void log(String info) {
+    if (verbose) {
+      print("[${DateTime.now().toString()}] $info");
+    }
   }
 
   /// Implement `console.log` for the given [ctx] within [val] object.
@@ -249,7 +256,7 @@ final class _EngineManager {
 
     final engine = _consoleDict[c.hashJsValue(val)];
     if (engine == null) {
-      print("Engine instance not found with '$strings'!");
+      log("Engine instance not found with '$strings'!");
     } else {
       engine._stdout.writeln(strings);
     }
@@ -295,7 +302,7 @@ final class _EngineManager {
       final warning = engine == null
           ? 'Engine instance not found!'
           : "'$m' method not found!";
-      print('Warning: $warning');
+      log('Warning: $warning');
     }
     if (method != ffi.nullptr) {
       lib.JS_FreeCString(ctx, method);
@@ -346,7 +353,7 @@ final class _EngineManager {
     // from `call_handler` in `quickjs-libc.c`.
     final ret = lib.JS_Call(ctx, func, c.JS_UNDEFINED, 0, ffi.nullptr);
     if (c.JS_IsException(ret)) {
-      print('_handleCall: ${c.getJsError(ctx)}');
+      _manager.log('_handleCall: ${c.getJsError(ctx)}');
     }
     c.JS_FreeValue(ctx, ret);
     c.JS_FreeValue(ctx, func);
@@ -360,11 +367,11 @@ const closeCommand = <String, dynamic>{'cmd': _closeTag};
 /// [outgoing] port was to reply the command from main isolate, while [notifying]
 /// port was to send notify event at the time of executing js without command
 /// from main isolate.
-void engineIsolate((SendPort, SendPort) r) async {
-  final (outgoing, notifying) = r;
+void engineIsolate((SendPort, SendPort, bool) r) async {
+  final (outgoing, notifying, verbose) = r;
   final incoming = ReceivePort('_isolate.incoming');
   outgoing.send(incoming.sendPort);
-  final manager = _manager = _EngineManager();
+  final manager = _manager = _EngineManager(verbose: verbose);
   final requests = incoming.cast<Map<String, dynamic>>();
   manager.onDartNotified = (engine, method, data) {
     notifying.send({
@@ -377,7 +384,7 @@ void engineIsolate((SendPort, SendPort) r) async {
   await for (final req in requests) {
     final cmd = req['cmd'];
     if (cmd == _closeTag) {
-      print("Isolate received '$cmd', start closing ...");
+      manager.log("Isolate received '$cmd', start closing ...");
       break;
     }
     // Error happened by `js_check_stack_overflow` in `next_token`, which is
@@ -418,7 +425,7 @@ void engineIsolate((SendPort, SendPort) r) async {
         final id = req['id'];
         final e = manager._engines[id];
         if (e == null) {
-          print("engine id '$id' not found!");
+          manager.log("engine id '$id' not found!");
           break;
         }
         e.dispose();

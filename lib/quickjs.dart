@@ -41,6 +41,7 @@ final class JsEngineManager {
   final ReceivePort _notified;
   final Isolate _isolate;
   final SendPort _send;
+  final bool verbose;
   final _engines = <int, JsEngine>{};
   final _futures = <Completer<Map<String, dynamic>>>[];
 
@@ -49,22 +50,31 @@ final class JsEngineManager {
     this._notified,
     this._isolate,
     this._send,
+    this.verbose,
   );
 
+  void log(String info) {
+    if (verbose) {
+      print("[${DateTime.now().toString()}] $info");
+    }
+  }
+
   /// Async create a manager instance. One instance one isolate.
-  static Future<JsEngineManager> create() async {
+  static Future<JsEngineManager> create({
+    bool verbose = false,
+  }) async {
     final recv = ReceivePort('main.incoming');
     final notified = ReceivePort('main.notified');
-    final isolate = await Isolate.spawn<(SendPort, SendPort)>(
+    final isolate = await Isolate.spawn<(SendPort, SendPort, bool)>(
       engineIsolate,
-      (recv.sendPort, notified.sendPort),
+      (recv.sendPort, notified.sendPort, verbose),
       errorsAreFatal: true,
       debugName: '_engineIsolate',
     );
     final receiving = recv.asBroadcastStream();
     final send = (await receiving.first) as SendPort;
     final data = receiving.cast<Map<String, dynamic>>();
-    final manager = JsEngineManager._(recv, notified, isolate, send);
+    final manager = JsEngineManager._(recv, notified, isolate, send, verbose);
     data.listen(manager._onDataArrived);
     notified.cast<Map<String, dynamic>>().listen(manager._onNotified);
     return manager;
@@ -113,25 +123,25 @@ final class JsEngineManager {
 
   /// Dispose an js engine with [id].
   Future<void> disposeEngine(int id) async {
-    print("engine-$id: disposing...");
+    log("engine-$id: disposing...");
     final data = await _sendWaitFor({
       'cmd': 'dispose',
       'id': id,
     });
     final targetId = data['id'] ?? 0;
     if (targetId < 1) {
-      print("Engine '$targetId' not exists!");
+      log("Engine '$targetId' not exists!");
     }
     _engines.remove(targetId);
-    print("engine-$targetId: disposed.");
+    log("engine-$targetId: disposed.");
   }
 
   /// Notify native js engines in the isolate to dispose and then kill this
   /// isolate.
   Future<void> dispose() async {
-    print("manager: disposing native engines ...");
+    log("manager: disposing native engines ...");
     await _sendWaitFor(closeCommand);
-    print("manager: native engines disposed.");
+    log("manager: native engines disposed.");
     _recv.close();
     _notified.close();
     _isolate.kill();
@@ -140,18 +150,18 @@ final class JsEngineManager {
   void _onNotified(Map<String, dynamic> data) {
     final targetId = data['id'] ?? 0;
     if (targetId < 1) {
-      print("manager: notified '$targetId' not exists!");
+      log("manager: notified '$targetId' not exists!");
       return;
     }
     final e = _engines[targetId];
     if (e == null) {
-      print("manager: notified '$targetId' not found!");
+      log("manager: notified '$targetId' not found!");
       return;
     }
     final method = data['method'];
     final params = data['data'] as Map<String, dynamic>;
     e._notifiers[method]?.call(params);
-    print("manager: $e.$method($params) notified.");
+    log("manager: $e.$method($params) notified.");
   }
 
   /// Current engine counts.

@@ -12,9 +12,10 @@ const _repoLibName = 'libquickjs.so';
 /// Implements the protocol from `package:native_assets_cli` by building
 /// the C code in `src/` and reporting what native assets it built.
 void main(List<String> args) async {
-  // Parse the build configuration passed to this CLI from Dart or Flutter.
-  final buildConfig = await BuildConfig.fromArgs(args);
+  await build(args, _builder);
+}
 
+Future<void> _builder(BuildConfig buildConfig, BuildOutput buildOutput) async {
   final pkgRoot = buildConfig.packageRoot;
   final srcDir = pkgRoot.resolve('src');
   final proc = await Process.start(
@@ -32,17 +33,18 @@ void main(List<String> args) async {
     exit(code);
   }
 
-  final linkMode = buildConfig.linkModePreference.preferredLinkMode;
-  final libName = buildConfig.targetOs.libraryFileName(packageName, linkMode);
-  final libUri = buildConfig.outDir.resolve(libName);
+  final linkMode = _linkMode(buildConfig.linkModePreference);
+  final libName = buildConfig.targetOS.libraryFileName(packageName, linkMode);
+  final libUri = buildConfig.outputDirectory.resolve(libName);
   File(p.join(srcDir.path, _repoLibName)).renameSync(libUri.path);
 
-  final buildOutput = BuildOutput();
-  buildOutput.assets.add(Asset(
-    id: 'package:$packageName/src/lib_$packageName.dart',
+  buildOutput.addAsset(NativeCodeAsset(
+    package: packageName,
+    name: 'src/lib_$packageName.dart',
     linkMode: linkMode,
-    target: buildConfig.target,
-    path: AssetAbsolutePath(libUri),
+    os: buildConfig.targetOS,
+    file: libUri,
+    architecture: buildConfig.targetArchitecture,
   ));
   final src = [
     'src/quickjs.c',
@@ -53,9 +55,18 @@ void main(List<String> args) async {
     'src/libbf.c',
   ];
 
-  buildOutput.dependencies.dependencies.addAll([
+  buildOutput.addDependencies([
     ...src.map((s) => pkgRoot.resolve(s)),
     pkgRoot.resolve('build.dart'),
   ]);
-  await buildOutput.writeToFile(outDir: buildConfig.outDir);
+}
+
+LinkMode _linkMode(LinkModePreference preference) {
+  if (preference == LinkModePreference.dynamic ||
+      preference == LinkModePreference.preferDynamic) {
+    return DynamicLoadingBundled();
+  }
+  assert(preference == LinkModePreference.static ||
+      preference == LinkModePreference.preferStatic);
+  return StaticLinking();
 }

@@ -767,6 +767,13 @@ external int JS_IsArray(
   JSValue val,
 );
 
+@ffi.Native<JSValue Function(ffi.Pointer<JSContext>, ffi.Double)>(
+    symbol: 'JS_NewDate')
+external JSValue JS_NewDate(
+  ffi.Pointer<JSContext> ctx,
+  double epoch_ms,
+);
+
 @ffi.Native<
     JSValue Function(ffi.Pointer<JSContext>, JSValue, JSAtom, JSValue,
         ffi.Int)>(symbol: 'JS_GetPropertyInternal')

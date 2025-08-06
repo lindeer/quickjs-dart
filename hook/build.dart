@@ -2,12 +2,11 @@
 // for details. All rights reserved. Use of this source code is governed by a
 // BSD-style license that can be found in the LICENSE file.
 
-import 'dart:io' show File, Process, exit, stderr, stdout;
-import 'package:path/path.dart' as p;
-import 'package:native_assets_cli/native_assets_cli.dart';
+import 'dart:io';
 
-const packageName = 'quickjs';
-const _repoLibName = 'libquickjs.so';
+import 'package:code_assets/code_assets.dart';
+import 'package:hooks/hooks.dart';
+import 'package:path/path.dart' as p;
 
 /// Implements the protocol from `package:native_assets_cli` by building
 /// the C code in `src/` and reporting what native assets it built.
@@ -15,14 +14,17 @@ void main(List<String> args) async {
   await build(args, _builder);
 }
 
-Future<void> _builder(BuildConfig buildConfig, BuildOutput buildOutput) async {
-  final pkgRoot = buildConfig.packageRoot;
+Future<void> _builder(BuildInput input, BuildOutputBuilder output) async {
+  final buildConfig = input.config;
+  final pkgRoot = input.packageRoot;
   final srcDir = pkgRoot.resolve('src');
+  final packageName = input.packageName;
+  final libName = buildConfig.code.targetOS.dylibFileName(packageName);
   final proc = await Process.start(
     'make',
     [
       '-j',
-      _repoLibName,
+      libName,
     ],
     workingDirectory: srcDir.path,
   );
@@ -33,19 +35,16 @@ Future<void> _builder(BuildConfig buildConfig, BuildOutput buildOutput) async {
     exit(code);
   }
 
-  final linkMode = _linkMode(buildConfig.linkModePreference);
-  final libName = buildConfig.targetOS.libraryFileName(packageName, linkMode);
-  final libUri = buildConfig.outputDirectory.resolve(libName);
-  File(p.join(srcDir.path, _repoLibName)).renameSync(libUri.path);
+  final libUri = input.outputDirectory.resolve(libName);
+  File(p.join(srcDir.path, libName)).renameSync(libUri.path);
 
-  buildOutput.addAsset(NativeCodeAsset(
+  final codeAsset = CodeAsset(
     package: packageName,
     name: 'src/lib_$packageName.dart',
-    linkMode: linkMode,
-    os: buildConfig.targetOS,
+    linkMode: DynamicLoadingBundled(),
     file: libUri,
-    architecture: buildConfig.targetArchitecture,
-  ));
+  );
+  output.assets.code.add(codeAsset);
   final src = [
     'src/quickjs.c',
     'src/libregexp.c',
@@ -55,18 +54,8 @@ Future<void> _builder(BuildConfig buildConfig, BuildOutput buildOutput) async {
     'src/libbf.c',
   ];
 
-  buildOutput.addDependencies([
+  output.addDependencies([
     ...src.map((s) => pkgRoot.resolve(s)),
     pkgRoot.resolve('build.dart'),
   ]);
-}
-
-LinkMode _linkMode(LinkModePreference preference) {
-  if (preference == LinkModePreference.dynamic ||
-      preference == LinkModePreference.preferDynamic) {
-    return DynamicLoadingBundled();
-  }
-  assert(preference == LinkModePreference.static ||
-      preference == LinkModePreference.preferStatic);
-  return StaticLinking();
 }

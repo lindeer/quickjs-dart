@@ -5,8 +5,10 @@ permissions:
 
 on:
   push:
+    paths:
+      - '.github/workflows/asset_build.yaml'
     tags:
-      - 'opencc-v*'
+      - 'quickjs-v*'
   workflow_dispatch:
 
 jobs:
@@ -54,9 +56,8 @@ jobs:
       if: ${{ matrix.os == 'windows' }}
 
     - run: dart pub get
-    - run: git clone https://gitlab.com/lindeer/opencc.git lib-src --depth 1 -b $(cat opencc-version)
-    # `mkdir` usage is different on windows
-    - run: dart tool/mkdir.dart lib-src/build assets
+    - run: git clone https://gitee.com/lindeer/quickjs.git lib-src --depth 1 -b $(cat quickjs-version)
+    - run: mkdir assets
 
     # ubuntu:18.04 is GLIBC_2.27 while ubuntu-22.04 host is GLIBC_2.29
     - name: Build in Docker container
@@ -64,39 +65,37 @@ jobs:
       run: |
         docker pull ubuntu:18.04
         docker run --rm \
-          -v ${{ github.workspace }}:/workspace \
+          -v ${{ github.workspace }}/lib-src:/workspace \
           -w /workspace \
           ubuntu:18.04 \
-          /bin/bash tool/compile.sh
+          make -j$(getconf _NPROCESSORS_ONLN) libquickjs.so
 
     - name: Build ${{ matrix.os }}-${{ matrix.arch }} host
-      working-directory: lib-src/build
+      working-directory: lib-src
       if: ${{ matrix.os != 'linux'}}
       run: |
-        cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON
-        cmake --build . --config Release --target Dictionaries
+        make -j$(getconf _NPROCESSORS_ONLN) libquickjs.so
 
-    - name: Pack assets archive
-      working-directory: assets
+    - name: Rename assets
+      if: ${{ matrix.os != 'windows'}}
       env:
         EXT: ${{ matrix.os == 'macos' && 'dylib' || (matrix.os == 'windows' && 'dll' || 'so') }}
-        LIB_DIR: ../lib-src/build/src${{ matrix.os == 'windows' && '/Release' || '' }}
-      # windows does not have zip command
       run: |
-        ls -l ${{ env.LIB_DIR }}
-        cp ${{ env.LIB_DIR }}/*.${{ env.EXT }} .
-        dart ../tool/mkdir.dart opencc
-        cp ../lib-src/build/data/*.ocd2 opencc
-        cp ../lib-src/data/config/*.json opencc
-        ls -R .
-        dart ../tool/zip.dart opencc-${{ matrix.os }}-${{ matrix.arch }}.zip *.${{ env.EXT }} opencc
+        mv lib-src/libquickjs.so assets/libquickjs-${{ matrix.os }}-${{ matrix.arch }}.${{ env.EXT }}
+        ls .
+
+    - name: Rename assets on windows
+      if: ${{ matrix.os == 'windows'}}
+      run: |
+        move "lib-src\libquickjs.so" "assets\quickjs-${{ matrix.os }}-${{ matrix.arch }}.dll"
+        ls .
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: opencc-${{ matrix.os }}-${{ matrix.arch }}
+        name: quickjs-${{ matrix.os }}-${{ matrix.arch }}
         path: |
-          assets/*.zip
+          assets/**
         if-no-files-found: error
 
   release:
@@ -117,7 +116,7 @@ jobs:
 
       - name: Release
         uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/opencc-v')
+        if: startsWith(github.ref, 'refs/tags/quickjs-v')
         with:
           files: 'assets/**'
           fail_on_unmatched_files: true

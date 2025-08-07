@@ -5,8 +5,8 @@ permissions:
 
 on:
   push:
-    paths:
-      - '.github/workflows/asset_build.yaml'
+    branches:
+      - t/assets
     tags:
       - 'quickjs-v*'
   workflow_dispatch:

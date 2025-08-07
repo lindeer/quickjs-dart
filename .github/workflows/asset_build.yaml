@@ -65,16 +65,16 @@ jobs:
       run: |
         docker pull ubuntu:18.04
         docker run --rm \
-          -v ${{ github.workspace }}/lib-src:/workspace \
+          -v ${{ github.workspace }}:/workspace \
           -w /workspace \
           ubuntu:18.04 \
-          make -j$(getconf _NPROCESSORS_ONLN) libquickjs.so
+          /bin/bash tool/compile.sh
 
     - name: Build ${{ matrix.os }}-${{ matrix.arch }} host
       working-directory: lib-src
       if: ${{ matrix.os != 'linux'}}
       run: |
-        make -j$(getconf _NPROCESSORS_ONLN) libquickjs.so
+        make -j libquickjs.so
 
     - name: Rename assets
       if: ${{ matrix.os != 'windows'}}

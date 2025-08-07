@@ -6,7 +6,7 @@ permissions:
 on:
   push:
     branches:
-      - t/assets
+      - main
     tags:
       - 'quickjs-v*'
   workflow_dispatch:

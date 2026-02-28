@@ -144,14 +144,17 @@ jobs:
       run: |
         TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
         build_android() {
-          local cc=$1 out=$2
+          local cc=$1 flags=$2 out=$3
           echo "Building $out (cc=$cc)"
           make clean
-          make -j libquickjs.so CC="$TOOLCHAIN/$cc"
+          make -j libquickjs.so \
+            CC="$TOOLCHAIN/$cc $flags" \
+            LDEXTRA="$flags"
           mv libquickjs.so ../assets/"$out"
         }
-        build_android aarch64-linux-android21-clang libquickjs-android-arm64.so
-        build_android x86_64-linux-android21-clang libquickjs-android-x64.so
+        build_android aarch64-linux-android21-clang "" libquickjs-android-arm64.so
+        build_android armv7a-linux-androideabi21-clang "-DJS_NAN_BOXING -latomic" libquickjs-android-arm.so
+        build_android x86_64-linux-android21-clang "" libquickjs-android-x64.so
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v4

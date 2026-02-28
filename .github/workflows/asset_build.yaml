@@ -99,8 +99,72 @@ jobs:
           assets/**
         if-no-files-found: error
 
+  build-ios:
+    runs-on: macos-15
+    steps:
+    - uses: actions/checkout@v4
+    - run: git clone https://gitee.com/lindeer/quickjs.git lib-src --depth 1 -b $(cat quickjs-version)
+    - run: mkdir assets
+
+    - name: Build iOS variants
+      working-directory: lib-src
+      run: |
+        build_ios() {
+          local arch=$1 sdk=$2 target=$3 out=$4
+          CC=$(xcrun --sdk "$sdk" --find clang)
+          SYSROOT=$(xcrun --sdk "$sdk" --show-sdk-path)
+          echo "Building $out (arch=$arch, sdk=$sdk, target=$target)"
+          make clean
+          make -j libquickjs.so \
+            CC="$CC" \
+            CFLAGS="-target $target -isysroot $SYSROOT -mios-version-min=13.0 -fPIC" \
+            LDFLAGS="-target $target -isysroot $SYSROOT -mios-version-min=13.0 -Wl,-headerpad_max_install_names"
+          mv libquickjs.so ../assets/"$out"
+        }
+        build_ios arm64 iphoneos arm64-apple-ios13.0 libquickjs-ios-arm64-iphoneos.dylib
+        build_ios arm64 iphonesimulator arm64-apple-ios13.0-simulator libquickjs-ios-arm64-iphonesimulator.dylib
+        build_ios x86_64 iphonesimulator x86_64-apple-ios13.0-simulator libquickjs-ios-x64-iphonesimulator.dylib
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: quickjs-ios
+        path: |
+          assets/**
+        if-no-files-found: error
+
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - run: git clone https://gitee.com/lindeer/quickjs.git lib-src --depth 1 -b $(cat quickjs-version)
+    - run: mkdir assets
+
+    - name: Build Android variants
+      working-directory: lib-src
+      run: |
+        TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+        build_android() {
+          local cc=$1 out=$2
+          echo "Building $out (cc=$cc)"
+          make clean
+          make -j libquickjs.so CC="$TOOLCHAIN/$cc"
+          mv libquickjs.so ../assets/"$out"
+        }
+        build_android aarch64-linux-android21-clang libquickjs-android-arm64.so
+        build_android armv7a-linux-androideabi21-clang libquickjs-android-arm.so
+        build_android x86_64-linux-android21-clang libquickjs-android-x64.so
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: quickjs-android
+        path: |
+          assets/**
+        if-no-files-found: error
+
   release:
-    needs: build
+    needs: [build, build-ios, build-android]
     runs-on: ubuntu-latest
 
     steps:

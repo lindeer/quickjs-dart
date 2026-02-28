@@ -143,17 +143,19 @@ jobs:
       working-directory: lib-src
       run: |
         TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+        # Patch fork bug: JSValueUnion used outside NAN_BOXING guard (line 2214)
+        sed -i 's/return (JSValue){ (JSValueUnion){ .int32 = val }, tag };/return JS_MKVAL(tag, val);/' quickjs.c
         build_android() {
-          local cc=$1 flags=$2 out=$3
+          local cc=$1 ldflags=$2 out=$3
           echo "Building $out (cc=$cc)"
           make clean
           make -j libquickjs.so \
-            CC="$TOOLCHAIN/$cc $flags" \
-            LDEXTRA="$flags"
+            CC="$TOOLCHAIN/$cc" \
+            LDFLAGS="$ldflags"
           mv libquickjs.so ../assets/"$out"
         }
         build_android aarch64-linux-android21-clang "" libquickjs-android-arm64.so
-        build_android armv7a-linux-androideabi21-clang "-DJS_NAN_BOXING -latomic" libquickjs-android-arm.so
+        build_android armv7a-linux-androideabi21-clang "-latomic" libquickjs-android-arm.so
         build_android x86_64-linux-android21-clang "" libquickjs-android-x64.so
 
     - name: Upload artifacts

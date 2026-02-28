@@ -22,12 +22,6 @@ Future<void> _builder(BuildInput input, BuildOutputBuilder output) async {
   final codeConfig = buildConfig.code;
   final os = codeConfig.targetOS;
   final arch = codeConfig.targetArchitecture;
-  if (os == OS.android && arch == Architecture.arm) {
-    throw UnsupportedError(
-      'quickjs does not support 32-bit ARM Android ($arch). '
-      'Use a 64-bit target (arm64 or x64) instead.',
-    );
-  }
   final packageName = input.packageName;
   final outputDirectory = Directory.fromUri(input.outputDirectory);
   final file = await _download(packageName, codeConfig, outputDirectory);

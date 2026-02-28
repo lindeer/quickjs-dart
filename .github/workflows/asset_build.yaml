@@ -116,8 +116,7 @@ jobs:
           echo "Building $out (arch=$arch, sdk=$sdk, target=$target)"
           make clean
           make -j libquickjs.so \
-            CC="$CC" \
-            CFLAGS="-target $target -isysroot $SYSROOT -mios-version-min=13.0 -fPIC" \
+            CC="$CC -target $target -isysroot $SYSROOT -mios-version-min=13.0" \
             LDFLAGS="-target $target -isysroot $SYSROOT -mios-version-min=13.0 -Wl,-headerpad_max_install_names"
           mv libquickjs.so ../assets/"$out"
         }

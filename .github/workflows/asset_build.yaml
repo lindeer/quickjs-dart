@@ -36,10 +36,9 @@ jobs:
           - os: macos
             arch: x64
             runner: macos-13
-        exclude:
           - os: macos
             arch: arm64
-#           runner: macos-13-xlarge
+            runner: macos-latest
 
     runs-on: ${{ matrix.runner }}
 

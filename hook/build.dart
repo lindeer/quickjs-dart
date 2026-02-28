@@ -20,8 +20,6 @@ Future<void> _builder(BuildInput input, BuildOutputBuilder output) async {
     return;
   }
   final codeConfig = buildConfig.code;
-  final os = codeConfig.targetOS;
-  final arch = codeConfig.targetArchitecture;
   final packageName = input.packageName;
   final outputDirectory = Directory.fromUri(input.outputDirectory);
   final file = await _download(packageName, codeConfig, outputDirectory);

@@ -31,7 +31,7 @@ Future<void> _builder(BuildInput input, BuildOutputBuilder output) async {
 }
 
 const _url =
-    'https://github.com/getBoolean/quickjs-dart/releases/latest/download';
+    'https://github.com/BooleanExtra/quickjs-dart/releases/latest/download';
 
 Future<HttpClientResponse> _httpGet(HttpClient client, Uri uri) async {
   final request = await client.getUrl(uri);

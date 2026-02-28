@@ -16,6 +16,9 @@ void main(List<String> args) async {
 
 Future<void> _builder(BuildInput input, BuildOutputBuilder output) async {
   final buildConfig = input.config;
+  if (!buildConfig.buildCodeAssets) {
+    return;
+  }
   final codeConfig = buildConfig.code;
   final packageName = input.packageName;
   final outputDirectory = Directory.fromUri(input.outputDirectory);

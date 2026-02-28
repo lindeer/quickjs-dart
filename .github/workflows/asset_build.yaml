@@ -35,10 +35,10 @@ jobs:
 
           - os: macos
             arch: x64
-            runner: macos-13
+            runner: macos-26-intel
           - os: macos
             arch: arm64
-            runner: macos-latest
+            runner: macos-26
 
     runs-on: ${{ matrix.runner }}
 

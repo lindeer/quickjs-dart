@@ -152,7 +152,6 @@ jobs:
           mv libquickjs.so ../assets/"$out"
         }
         build_android aarch64-linux-android21-clang libquickjs-android-arm64.so
-        build_android armv7a-linux-androideabi21-clang libquickjs-android-arm.so
         build_android x86_64-linux-android21-clang libquickjs-android-x64.so
 
     - name: Upload artifacts

@@ -72,8 +72,10 @@ jobs:
     - name: Build ${{ matrix.os }}-${{ matrix.arch }} host
       working-directory: lib-src
       if: ${{ matrix.os != 'linux'}}
+      env:
+        LDEXPORT: ${{ matrix.os == 'macos' && '-Wl,-headerpad_max_install_names' || '' }}
       run: |
-        make -j libquickjs.so
+        make -j libquickjs.so LDFLAGS="$LDEXPORT"
 
     - name: Rename assets
       if: ${{ matrix.os != 'windows'}}

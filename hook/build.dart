@@ -21,7 +21,6 @@ Future<void> _builder(BuildInput input, BuildOutputBuilder output) async {
   final outputDirectory = Directory.fromUri(input.outputDirectory);
   final file = await _download(packageName, codeConfig, outputDirectory);
 
-
   final codeAsset = CodeAsset(
     package: packageName,
     name: 'src/lib_$packageName.dart',
@@ -31,7 +30,8 @@ Future<void> _builder(BuildInput input, BuildOutputBuilder output) async {
   output.assets.code.add(codeAsset);
 }
 
-const _url = 'https://github.com/lindeer/quickjs-dart/releases/latest/download';
+const _url =
+    'https://github.com/getBoolean/quickjs-dart/releases/latest/download';
 
 Future<HttpClientResponse> _httpGet(HttpClient client, Uri uri) async {
   final request = await client.getUrl(uri);

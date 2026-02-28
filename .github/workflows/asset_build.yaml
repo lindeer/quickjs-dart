@@ -47,7 +47,7 @@ jobs:
 
     - uses: dart-lang/setup-dart@v1
       with:
-        sdk: 3.10.0-14.0.dev
+        sdk: 3.11.0
 
     - uses: ilammy/msvc-dev-cmd@v1
       with:

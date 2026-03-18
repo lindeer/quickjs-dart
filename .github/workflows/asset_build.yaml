@@ -35,11 +35,10 @@ jobs:
 
           - os: macos
             arch: x64
-            runner: macos-13
-        exclude:
+            runner: macos-15-intel
           - os: macos
             arch: arm64
-#           runner: macos-13-xlarge
+            runner: macos-15
 
     runs-on: ${{ matrix.runner }}
 
@@ -48,7 +47,7 @@ jobs:
 
     - uses: dart-lang/setup-dart@v1
       with:
-        sdk: 3.10.0-14.0.dev
+        sdk: 3.11.0
 
     - uses: ilammy/msvc-dev-cmd@v1
       with:
@@ -73,8 +72,33 @@ jobs:
     - name: Build ${{ matrix.os }}-${{ matrix.arch }} host
       working-directory: lib-src
       if: ${{ matrix.os != 'linux'}}
+      shell: bash
       run: |
-        make -j libquickjs.so
+        if [[ "${{ matrix.os }}" == "windows" ]]; then
+          # Find libwinpthread.a — its location varies by MinGW distribution
+          WINPTHREAD_A=$(find /c/mingw64 -name 'libwinpthread.a' 2>/dev/null | grep -v debug | head -1)
+          echo "gcc: $(which gcc) ($(gcc --version | head -1))"
+          echo "libwinpthread.a: ${WINPTHREAD_A:-(not found)}"
+          ls /c/mingw64/lib/libwinpthread* /c/mingw64/x86_64-w64-mingw32/lib/libwinpthread* 2>/dev/null || true
+          if [ -n "$WINPTHREAD_A" ]; then
+            # ld.exe is a native Windows process: convert the MSYS2 path to a
+            # Windows path (C:/...) so ld.exe can find it via --whole-archive.
+            WINPTHREAD_A_WIN=$(cygpath -m "$WINPTHREAD_A")
+            echo "Windows path: $WINPTHREAD_A_WIN"
+            # --whole-archive ensures all pthread symbols are pulled from the static
+            # archive before gcc's implicit -lwinpthread can link the DLL import stub
+            LDFLAGS="-static-libgcc -Wl,--whole-archive,$WINPTHREAD_A_WIN,--no-whole-archive"
+          else
+            LDFLAGS="-static-libgcc"
+          fi
+        elif [[ "${{ matrix.os }}" == "macos" ]]; then
+          LDFLAGS="-Wl,-headerpad_max_install_names"
+        else
+          LDFLAGS=""
+        fi
+        make -j libquickjs.so LDFLAGS="$LDFLAGS"
+        echo "=== DLL imports after build ==="
+        objdump -p libquickjs.so | grep "DLL Name" || true
 
     - name: Rename assets
       if: ${{ matrix.os != 'windows'}}
@@ -98,8 +122,75 @@ jobs:
           assets/**
         if-no-files-found: error
 
+  build-ios:
+    runs-on: macos-15
+    steps:
+    - uses: actions/checkout@v4
+    - run: git clone https://gitee.com/lindeer/quickjs.git lib-src --depth 1 -b $(cat quickjs-version)
+    - run: mkdir assets
+
+    - name: Build iOS variants
+      working-directory: lib-src
+      run: |
+        build_ios() {
+          local arch=$1 sdk=$2 target=$3 out=$4
+          CC=$(xcrun --sdk "$sdk" --find clang)
+          SYSROOT=$(xcrun --sdk "$sdk" --show-sdk-path)
+          echo "Building $out (arch=$arch, sdk=$sdk, target=$target)"
+          make clean
+          make -j libquickjs.so \
+            CC="$CC -target $target -isysroot $SYSROOT -mios-version-min=13.0" \
+            LDFLAGS="-target $target -isysroot $SYSROOT -mios-version-min=13.0 -Wl,-headerpad_max_install_names"
+          mv libquickjs.so ../assets/"$out"
+        }
+        build_ios arm64 iphoneos arm64-apple-ios13.0 libquickjs-ios-arm64-iphoneos.dylib
+        build_ios arm64 iphonesimulator arm64-apple-ios13.0-simulator libquickjs-ios-arm64-iphonesimulator.dylib
+        build_ios x86_64 iphonesimulator x86_64-apple-ios13.0-simulator libquickjs-ios-x64-iphonesimulator.dylib
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: quickjs-ios
+        path: |
+          assets/**
+        if-no-files-found: error
+
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - run: git clone https://gitee.com/lindeer/quickjs.git lib-src --depth 1 -b $(cat quickjs-version)
+    - run: mkdir assets
+
+    - name: Build Android variants
+      working-directory: lib-src
+      run: |
+        TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+        # Patch fork bug: JSValueUnion used outside NAN_BOXING guard (line 2214)
+        sed -i 's/return (JSValue){ (JSValueUnion){ .int32 = val }, tag };/return JS_MKVAL(tag, val);/' quickjs.c
+        build_android() {
+          local cc=$1 ldflags=$2 out=$3
+          echo "Building $out (cc=$cc)"
+          make clean
+          make -j libquickjs.so \
+            CC="$TOOLCHAIN/$cc" \
+            LDFLAGS="$ldflags"
+          mv libquickjs.so ../assets/"$out"
+        }
+        build_android aarch64-linux-android21-clang "" libquickjs-android-arm64.so
+        build_android armv7a-linux-androideabi21-clang "-latomic" libquickjs-android-arm.so
+        build_android x86_64-linux-android21-clang "" libquickjs-android-x64.so
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: quickjs-android
+        path: |
+          assets/**
+        if-no-files-found: error
+
   release:
-    needs: build
+    needs: [build, build-ios, build-android]
     runs-on: ubuntu-latest
 
     steps:
